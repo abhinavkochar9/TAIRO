@@ -36,17 +36,15 @@ plt.rcParams.update({
 })
 
 METHOD_COLORS = {
-    "rule_based":           "#1976D2",
     "sac_her":              "#F57C00",
-    "rule_based_recovery":  "#0D47A1",
-    "sac_her_recovery":     "#BF360C",
+    "sac_her_recovery_v2":  "#1565C0",
+    "sac_her_recovery_v3":  "#1B5E20",
 }
 
 METHOD_LABELS = {
-    "rule_based":           "Rule-Based",
     "sac_her":              "SAC+HER",
-    "rule_based_recovery":  "Rule-Based + Recovery",
-    "sac_her_recovery":     "SAC+HER + Recovery",
+    "sac_her_recovery_v2":  "SAC+HER+Recovery v2",
+    "sac_her_recovery_v3":  "SAC+HER+Recovery v3",
 }
 
 CONDITION_LABELS = {
@@ -82,9 +80,9 @@ def _savefig(fig: plt.Figure, name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def fig1_success_by_condition(ep_df: pd.DataFrame) -> None:
-    b1 = ep_df[ep_df["benchmark_layer"] == "B1"]
+    b1 = ep_df[ep_df["benchmark_layer"].isin(["B0", "B1"])]
     conditions = ALL_CONDITIONS
-    base_methods = ["rule_based", "sac_her"]
+    base_methods = ["sac_her"]
 
     x = np.arange(len(conditions))
     width = 0.35
@@ -108,8 +106,8 @@ def fig1_success_by_condition(ep_df: pd.DataFrame) -> None:
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Success Rate")
     ax.set_title(
-        "Fig 1 — Rule-Based vs SAC+HER Success Rate per Attack Condition\n"
-        "(B1: no recovery, 3 seeds × 10 episodes each)",
+        "Fig 1 — SAC+HER Baseline Vulnerability per Attack Condition\n"
+        "(B1: no recovery, 5 seeds × 30 episodes each)",
         fontsize=11,
     )
     ax.legend(loc="upper right")
@@ -132,7 +130,7 @@ def fig2_b0_b3_layers(ep_df: pd.DataFrame) -> None:
     for i, layer in enumerate(BENCHMARK_LAYERS):
         layer_df = ep_df[
             (ep_df["benchmark_layer"] == layer)
-            & (ep_df["method"].isin(["sac_her", "sac_her_recovery"]))
+            & (ep_df["method"].isin(["sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"]))
         ]
         rates = [
             layer_df[layer_df["condition"] == c]["success"].mean()
@@ -165,21 +163,21 @@ def fig2_b0_b3_layers(ep_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 def fig3_recovery_comparison(ep_df: pd.DataFrame) -> None:
-    sac_df = ep_df[ep_df["method"].isin(["sac_her", "sac_her_recovery"])]
+    sac_df = ep_df[ep_df["method"].isin(["sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"])]
     # Exclude clean — there is nothing to recover from.
     conditions = [c for c in ALL_CONDITIONS if c != "clean"]
     x = np.arange(len(conditions))
 
     configs = [
-        ("none", "No Recovery (B1)",  "#F57C00", "o--"),
-        ("v2",   "Recovery v2 (B2)", "#1565C0", "s-"),
-        ("v3",   "Recovery v3 (B3)", "#1B5E20", "^-"),
+        ("sac_her",             "No Recovery (B1)",  "#F57C00", "o--"),
+        ("sac_her_recovery_v2", "Recovery v2 (B2)", "#1565C0", "s-"),
+        ("sac_her_recovery_v3", "Recovery v3 (B3)", "#1B5E20", "^-"),
     ]
 
     fig, ax = plt.subplots(figsize=(11, 4.5))
-    for rv, label, color, fmt in configs:
+    for method, label, color, fmt in configs:
         rates = [
-            sac_df[(sac_df["recovery_version"] == rv) & (sac_df["condition"] == c)][
+            sac_df[(sac_df["method"] == method) & (sac_df["condition"] == c)][
                 "success"
             ].mean()
             for c in conditions
@@ -208,7 +206,7 @@ def fig3_recovery_comparison(ep_df: pd.DataFrame) -> None:
 
 def fig4_trustworthiness_scores(summary_df: pd.DataFrame) -> None:
     layers  = ["B1", "B3"]
-    methods = ["rule_based", "sac_her", "sac_her_recovery"]
+    methods = ["sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4), sharey=True)
 

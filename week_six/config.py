@@ -12,8 +12,8 @@ import os
 # ---------------------------------------------------------------------------
 ENV_ID              = "FetchReach-v4"
 MAX_EPISODE_STEPS   = 50
-RANDOM_SEEDS        = [0, 1, 2]
-N_EPISODES_PER_SEED = 10
+RANDOM_SEEDS        = [0, 1, 2, 3, 4]
+N_EPISODES_PER_SEED = 30
 
 ALL_CONDITIONS = [
     "clean",
@@ -35,10 +35,9 @@ BENCHMARK_LAYERS = ["B0", "B1", "B2", "B3"]
 
 # Methods in Week 6 — no random, no sac_plain
 ALL_METHODS = [
-    "rule_based",
-    "rule_based_recovery",
     "sac_her",
-    "sac_her_recovery",
+    "sac_her_recovery_v2",
+    "sac_her_recovery_v3",
 ]
 
 # ---------------------------------------------------------------------------
@@ -51,7 +50,7 @@ FIGURES_DIR    = f"{RESULTS_DIR}/figures"
 TB_DIR         = f"{RESULTS_DIR}/tensorboard"
 CLASSIFIER_DIR = f"{RESULTS_DIR}/classifier"
 
-MODEL_PATH = f"{MODELS_DIR}/sac_her_fetchreach_model.zip"
+MODEL_PATH = f"{MODELS_DIR}/sac_her_fetchreach_model"
 
 # ---------------------------------------------------------------------------
 # Optional dependency flags

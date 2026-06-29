@@ -23,6 +23,7 @@ import pandas as pd
 from config import (
     RANDOM_SEEDS,
     ALL_CONDITIONS,
+    ALL_METHODS,
     N_EPISODES_PER_SEED,
     DATA_DIR,
     MODEL_PATH,
@@ -42,30 +43,34 @@ _ATTACK_LEVELS = {
     "goal_spoof_midep":     0.1,
 }
 
-# (use_recovery, recovery_version) pairs that produce B1 / B2 / B3 rows.
-_RECOVERY_CONFIGS = [
-    (False, "none"),
-    (True,  "v2"),
-    (True,  "v3"),
-]
+_RECOVERY_VERSION = {
+    "sac_her":             "none",
+    "sac_her_recovery_v2": "v2",
+    "sac_her_recovery_v3": "v3",
+}
 
 
-def _layer(condition: str, use_recovery: bool, recovery_version: str) -> str:
-    if not use_recovery:
+def _layer(method: str, condition: str) -> str:
+    if method == "sac_her":
         return "B0" if condition == "clean" else "B1"
-    return "B2" if recovery_version == "v2" else "B3"
+    if method == "sac_her_recovery_v2":
+        return "B2"
+    return "B3"  # sac_her_recovery_v3
 
 
 def main() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
 
+    # Create a temporary env just to satisfy HerReplayBuffer at load time
+    _tmp_env = make_env(seed=0)
     model = None
     if SB3_AVAILABLE:
         from stable_baselines3 import SAC
         print(f"[sweep] Loading SAC+HER model from {MODEL_PATH}")
-        model = SAC.load(MODEL_PATH)
+        model = SAC.load(MODEL_PATH, env=_tmp_env)
     else:
         print("[sweep] WARNING: SB3 not available — sac_her runs will be skipped.")
+    _tmp_env.close()
 
     episode_rows = []
     step_rows = []
@@ -78,41 +83,39 @@ def main() -> None:
         for condition in ALL_CONDITIONS:
             attack_level = _ATTACK_LEVELS[condition]
 
-            for base_method in ["rule_based", "sac_her"]:
-                if base_method == "sac_her" and model is None:
+            for method in ALL_METHODS:
+                if model is None:
                     continue
 
-                for use_recovery, recovery_version in _RECOVERY_CONFIGS:
-                    method_label = (
-                        f"{base_method}_recovery" if use_recovery else base_method
+                recovery_version = _RECOVERY_VERSION[method]
+                layer = _layer(method, condition)
+
+                for ep in range(N_EPISODES_PER_SEED):
+                    result, step_df = run_episode(
+                        env=env,
+                        method=method,
+                        condition=condition,
+                        seed=seed,
+                        model=model,
+                        attack_level=attack_level,
+                        recovery_version=recovery_version,
                     )
-                    layer = _layer(condition, use_recovery, recovery_version)
 
-                    for ep in range(N_EPISODES_PER_SEED):
-                        result, step_df = run_episode(
-                            env=env,
-                            method=base_method,
-                            condition=condition,
-                            seed=seed + ep,
-                            use_recovery=use_recovery,
-                            recovery_version=recovery_version,
-                        )
+                    row = vars(result).copy()
+                    row["method"]           = method
+                    row["attack_level"]     = attack_level
+                    row["episode_idx"]      = episode_idx
+                    row["recovery_version"] = recovery_version
+                    row["benchmark_layer"]  = layer
+                    episode_rows.append(row)
 
-                        row = vars(result).copy()
-                        row["method"]           = method_label
-                        row["attack_level"]     = attack_level
-                        row["episode_idx"]      = episode_idx
-                        row["recovery_version"] = recovery_version
-                        row["benchmark_layer"]  = layer
-                        episode_rows.append(row)
+                    step_df = step_df.copy()
+                    step_df["episode_idx"]      = episode_idx
+                    step_df["recovery_version"] = recovery_version
+                    step_df["benchmark_layer"]  = layer
+                    step_rows.append(step_df)
 
-                        step_df = step_df.copy()
-                        step_df["episode_idx"]      = episode_idx
-                        step_df["recovery_version"] = recovery_version
-                        step_df["benchmark_layer"]  = layer
-                        step_rows.append(step_df)
-
-                        episode_idx += 1
+                    episode_idx += 1
 
         env.close()
 

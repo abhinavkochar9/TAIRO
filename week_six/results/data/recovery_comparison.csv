@@ -1,0 +1,9 @@
+condition,no_recovery,recovery_v2,recovery_v3,delta_v2_none,delta_v3_none,delta_v3_v2,c5_recovery_score
+clean,1.0,1.0,1.0,0.0,0.0,0.0,0.0
+sensor_dropout,0.0,0.6,1.0,0.6,1.0,0.4,1.0
+sensor_bias,0.24,0.287,0.367,0.047,0.127,0.08,0.127
+action_clipping,1.0,1.0,1.0,0.0,0.0,0.0,0.0
+action_delay,0.0,1.0,1.0,1.0,1.0,0.0,1.0
+action_reversal,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+goal_spoof_immediate,0.293,0.2,0.22,-0.093,-0.073,0.02,0.0
+goal_spoof_midep,1.0,1.0,1.0,0.0,0.0,0.0,0.0

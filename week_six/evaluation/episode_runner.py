@@ -131,9 +131,10 @@ def run_episode(
     Returns:
         Tuple of (EpisodeResult, step_log_DataFrame).
     """
-    # Dynamic recovery import — chosen once per episode based on recovery_version.
-    if use_recovery:
-        if recovery_version == "v2":
+    # Recovery version is encoded in the method name — derive it here.
+    _use_recovery = method in {"sac_her_recovery_v2", "sac_her_recovery_v3"}
+    if _use_recovery:
+        if method == "sac_her_recovery_v2":
             from recovery.recovery_v2 import maybe_apply_recovery, RecoveryState
         else:
             from recovery.recovery_v3 import maybe_apply_recovery, RecoveryState
@@ -150,6 +151,7 @@ def run_episode(
     previous_obs: Optional[Dict] = None
     step_distances: List[float] = []
     any_recovery = False
+    first_recovery_step: float = float("nan")
 
     # Per-episode constants sampled once for attacks that require a fixed offset
     bias_vector: Optional[np.ndarray] = None
@@ -195,15 +197,10 @@ def run_episode(
         # -- Policy action -------------------------------------------------------
         if policy_fn is not None:
             action = policy_fn(env, policy_obs)
-        elif method == "rule_based":
-            action = rule_based_reach_policy(env, policy_obs)
-        elif method in {"sac", "sac_her", "sac_plain", "recovery_aware_sac_her"} and model is not None:
+        elif method in {"sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"} and model is not None:
             action, _ = model.predict(policy_obs, deterministic=True)
         else:
-            if method in {"sac", "sac_her", "sac_plain"} and model is not None:
-                action, _ = model.predict(policy_obs, deterministic=True)
-            else:
-                action = rule_based_reach_policy(env, policy_obs)
+            raise ValueError(f"run_episode: unknown method '{method}' or model is None")
 
         intended_action = np.asarray(action, dtype=np.float32).copy()
 
@@ -222,7 +219,7 @@ def run_episode(
 
         # -- Recovery (TAIRO C5) -------------------------------------------------
         recovery_triggered = False
-        if use_recovery:
+        if _use_recovery:
             executed_action, recovery_triggered = maybe_apply_recovery(
                 obs=obs,                      # raw unattacked obs — recovery steers to real goal
                 action=executed_action,
@@ -235,6 +232,8 @@ def run_episode(
             )
             if recovery_triggered:
                 any_recovery = True
+                if np.isnan(first_recovery_step):
+                    first_recovery_step = float(t)
 
         previous_obs = obs
         previous_action = executed_action.copy()
@@ -268,6 +267,7 @@ def run_episode(
             break
 
     step_df = pd.DataFrame(step_logs)
+    step_df["steps_to_recovery"] = first_recovery_step
 
     result = EpisodeResult(
         method=method,

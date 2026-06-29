@@ -36,15 +36,15 @@ def main() -> None:
     print(f"[recovery] Loaded {len(df)} episodes from {ep_path}")
 
     # Keep only sac_her base method (with and without recovery).
-    sac_df = df[df["method"].isin(["sac_her", "sac_her_recovery"])].copy()
+    sac_df = df[df["method"].isin(["sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"])].copy()
 
     rows = []
     for condition in ALL_CONDITIONS:
         cond = sac_df[sac_df["condition"] == condition]
 
-        no_rec = _safe_mean(cond[cond["recovery_version"] == "none"]["success"])
-        v2     = _safe_mean(cond[cond["recovery_version"] == "v2"]["success"])
-        v3     = _safe_mean(cond[cond["recovery_version"] == "v3"]["success"])
+        no_rec = _safe_mean(cond[cond["method"] == "sac_her"]["success"])
+        v2     = _safe_mean(cond[cond["method"] == "sac_her_recovery_v2"]["success"])
+        v3     = _safe_mean(cond[cond["method"] == "sac_her_recovery_v3"]["success"])
 
         def _delta(a: float, b: float) -> float:
             return round(a - b, 3) if not (np.isnan(a) or np.isnan(b)) else float("nan")

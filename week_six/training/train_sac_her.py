@@ -20,6 +20,7 @@ from config import (
     ENV_ID,
     GYM_AVAILABLE,
     MAX_EPISODE_STEPS,
+    MODEL_PATH,
     RANDOM_SEEDS,
     RESULTS_DIR,
     SB3_AVAILABLE,
@@ -109,7 +110,7 @@ def train_sac_her(
     env.close()
 
     if save_path is None:
-        save_path = os.path.join(RESULTS_DIR, "sac_her_fetchreach_model")
+        save_path = MODEL_PATH
 
     model.save(save_path)
     print(f"Model saved to: {save_path}")
