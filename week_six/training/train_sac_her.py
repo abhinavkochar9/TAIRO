@@ -1,0 +1,201 @@
+"""
+SAC+HER training and evaluation for FetchReach-v4.
+
+train_sac_her         — trains a SAC model with HerReplayBuffer and saves it.
+evaluate_trained_model — runs saved model against all attack conditions and
+                         saves episode + step CSVs.
+
+Both functions guard against missing Gymnasium Robotics or SB3 and raise
+RuntimeError with a clear message so the rest of the pipeline can degrade
+gracefully when dependencies are unavailable.
+"""
+
+import os
+from dataclasses import asdict
+from typing import List, Optional, Tuple
+
+import pandas as pd
+
+from config import (
+    ENV_ID,
+    GYM_AVAILABLE,
+    MAX_EPISODE_STEPS,
+    RANDOM_SEEDS,
+    RESULTS_DIR,
+    SB3_AVAILABLE,
+)
+from envs.fetchreach_env import make_env
+from evaluation.episode_runner import run_episode
+
+# Standard attack conditions used across all evaluation templates
+EVAL_CONDITIONS = [
+    ("clean", 0.00),
+    ("sensor_noise", 0.01),
+    ("sensor_noise", 0.05),
+    ("action_noise", 0.05),
+    ("action_scale", 0.50),
+    ("action_delay", 0.00),
+    ("target_shift", 0.03),
+]
+
+
+def train_sac_her(
+    total_timesteps: int = 50_000,
+    seed: int = 0,
+    learning_rate: float = 1e-3,
+    buffer_size: int = 100_000,
+    batch_size: int = 256,
+    gamma: float = 0.95,
+    tau: float = 0.05,
+    n_sampled_goal: int = 4,
+    save_path: Optional[str] = None,
+):
+    """Train SAC+HER on FetchReach-v4 and save the model.
+
+    Args:
+        total_timesteps: Number of environment steps to train for.
+                         Use 10_000 for a quick smoke test; 500_000+ for
+                         a converged policy.
+        seed:            Random seed for the model and environment.
+        learning_rate:   SB3 SAC learning rate.
+        buffer_size:     Replay buffer capacity.
+        batch_size:      Mini-batch size for gradient updates.
+        gamma:           Discount factor.
+        tau:             Soft-update coefficient for target networks.
+        n_sampled_goal:  Number of HER goal re-labellings per real transition.
+        save_path:       Where to save the model. Defaults to
+                         ``RESULT_DIR/sac_her_fetchreach_model``.
+
+    Returns:
+        Trained SB3 SAC model.
+    """
+    if not GYM_AVAILABLE:
+        raise RuntimeError(
+            "Gymnasium Robotics is not available. "
+            "Install it with: pip install gymnasium gymnasium-robotics mujoco"
+        )
+    if not SB3_AVAILABLE:
+        raise RuntimeError(
+            "Stable-Baselines3 is not available. "
+            "Install it with: pip install stable-baselines3"
+        )
+
+    from stable_baselines3 import SAC
+    from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
+
+    env = make_env(seed=seed)
+
+    tb_log_dir = os.path.join(RESULTS_DIR, "tb_logs")
+
+    model = SAC(
+        policy="MultiInputPolicy",
+        env=env,
+        replay_buffer_class=HerReplayBuffer,
+        replay_buffer_kwargs=dict(
+            n_sampled_goal=n_sampled_goal,
+            goal_selection_strategy="future",
+        ),
+        verbose=1,
+        seed=seed,
+        learning_rate=learning_rate,
+        buffer_size=buffer_size,
+        batch_size=batch_size,
+        gamma=gamma,
+        tau=tau,
+        tensorboard_log=tb_log_dir,
+    )
+
+    model.learn(total_timesteps=total_timesteps)
+    env.close()
+
+    if save_path is None:
+        save_path = os.path.join(RESULTS_DIR, "sac_her_fetchreach_model")
+
+    model.save(save_path)
+    print(f"Model saved to: {save_path}")
+    return model
+
+
+def evaluate_trained_model(
+    model,
+    seeds: List[int] = RANDOM_SEEDS,
+    conditions=None,
+    output_prefix: str = "sac_her",
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Evaluate a trained SAC+HER model under all attack conditions.
+
+    Runs both the plain model and a recovery-aware variant for each
+    condition and seed. Saves episode-level and step-level CSVs.
+
+    Args:
+        model:         Trained SB3 model returned by train_sac_her or
+                       loaded via ``SAC.load(...)``.
+        seeds:         List of random seeds to evaluate across.
+        conditions:    List of (condition_str, attack_level) tuples.
+                       Defaults to EVAL_CONDITIONS.
+        output_prefix: Prefix for saved CSV filenames.
+
+    Returns:
+        Tuple of (episode_df, step_df).
+    """
+    if not GYM_AVAILABLE:
+        raise RuntimeError("Gymnasium Robotics is not available.")
+
+    if conditions is None:
+        conditions = EVAL_CONDITIONS
+
+    all_results = []
+    all_steps = []
+
+    for seed in seeds:
+        env = make_env(seed=seed)
+
+        for condition, attack_level in conditions:
+            for use_recovery, method_name in [
+                (False, "sac_her"),
+                (True, "recovery_aware_sac_her"),
+            ]:
+                result, step_df = run_episode(
+                    env=env,
+                    method=method_name,
+                    seed=seed,
+                    condition=condition,
+                    attack_level=attack_level,
+                    model=model,
+                    use_recovery=use_recovery,
+                )
+                all_results.append(asdict(result))
+                all_steps.append(step_df)
+
+        env.close()
+
+    episode_df = pd.DataFrame(all_results)
+    step_df = pd.concat(all_steps, ignore_index=True)
+
+    episode_path = os.path.join(RESULTS_DIR, f"{output_prefix}_attack_episode_results.csv")
+    step_path = os.path.join(RESULTS_DIR, f"{output_prefix}_attack_step_logs.csv")
+
+    episode_df.to_csv(episode_path, index=False)
+    step_df.to_csv(step_path, index=False)
+
+    print(f"Saved: {episode_path}")
+    print(f"Saved: {step_path}")
+
+    return episode_df, step_df
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train SAC+HER on FetchReach-v4.")
+    parser.add_argument("--total-timesteps", type=int, default=10_000)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--save-path", type=str, default=None)
+    args = parser.parse_args()
+
+    model = train_sac_her(
+        total_timesteps=args.total_timesteps,
+        seed=args.seed,
+        save_path=args.save_path,
+    )
+    print(f"Training complete. Model saved to: {model.logger.dir if hasattr(model, 'logger') else args.save_path}")
