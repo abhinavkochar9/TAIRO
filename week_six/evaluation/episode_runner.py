@@ -236,7 +236,12 @@ def run_episode(
                     first_recovery_step = float(t)
 
         previous_obs = obs
-        previous_action = executed_action.copy()
+        # For action_delay, store the policy's intended action so the next step
+        # replays it as a genuine 1-step lag. Storing executed_action would
+        # perpetuate zeros forever (the confirmed bug).
+        previous_action = (
+            intended_action.copy() if condition == "action_delay" else executed_action.copy()
+        )
         actions.append(executed_action.copy())
 
         # -- Environment step ----------------------------------------------------
