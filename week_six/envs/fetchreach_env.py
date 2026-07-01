@@ -26,7 +26,9 @@ def make_env(seed: int = 0, rgb_mode: bool = False):
     import gymnasium as gym  # deferred so import errors are caught by config.py
     render_mode = "rgb_array" if rgb_mode else None
     env = gym.make(ENV_ID, max_episode_steps=MAX_EPISODE_STEPS, render_mode=render_mode)
-    env.reset(seed=seed)
+    # Do NOT call env.reset() here — SB3/DummyVecEnv handles the first reset
+    # internally.  Callers that need a specific seed (eval, recording) call
+    # env.reset(seed=seed) themselves after make_env() returns.
     return env
 
 

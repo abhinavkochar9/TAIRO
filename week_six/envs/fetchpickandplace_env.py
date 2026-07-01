@@ -78,7 +78,9 @@ def make_env(seed: int = 0, rgb_mode: bool = False):
         max_episode_steps=MAX_EPISODE_STEPS_PICKANDPLACE,
         render_mode=render_mode,
     )
-    env.reset(seed=seed)
+    # Do NOT call env.reset() here — SB3/DummyVecEnv handles the first reset
+    # internally.  Callers that need a specific seed (eval, recording) call
+    # env.reset(seed=seed) themselves after make_env() returns.
     return env
 
 

@@ -113,6 +113,7 @@ def train_sac_her(
         batch_size=batch_size,
         gamma=gamma,
         tau=tau,
+        learning_starts=300, # 2 x MAX_EP_LENGTH, Guarantees x complete episodes for HER
         tensorboard_log=tb_log_dir,
     )
 
@@ -249,12 +250,23 @@ if __name__ == "__main__":
     if not SB3_AVAILABLE:
         raise RuntimeError("Stable-Baselines3 not available.")
 
-    env = _make_env(seed=args.seed)
+    from stable_baselines3.common.vec_env import DummyVecEnv
 
+    # Env must be wrapped in DummyVecEnv via a callable factory so that the
+    # TimeLimit truncated=True signal at episode end flows through correctly.
+    # HER requires completed episodes before it can sample; passing a bare env
+    # object loses the episode-boundary signal and triggers
+    # "Unable to sample before end of first episode".
     if args.attack_randomization:
         from training.attack_randomization_wrapper import AttackRandomizationWrapper
-        env = AttackRandomizationWrapper(env, p_clean=args.p_clean, seed=args.seed)
+        _seed, _p_clean = args.seed, args.p_clean
+        env = DummyVecEnv([lambda: AttackRandomizationWrapper(
+            _make_env(seed=_seed), p_clean=_p_clean, seed=_seed,
+        )])
         print(f"[train] Attack-domain randomization enabled (p_clean={args.p_clean}).")
+    else:
+        _seed = args.seed
+        env = DummyVecEnv([lambda: _make_env(seed=_seed)])
 
     # --- Train -----------------------------------------------------------------
     from stable_baselines3 import SAC
@@ -275,6 +287,10 @@ if __name__ == "__main__":
         batch_size=256,
         gamma=0.95,
         tau=0.05,
+        # Must be > max_episode_steps (150) so at least one full episode
+        # completes before HER tries to sample.  SB3 default is 100 which
+        # triggers "Unable to sample before end of first episode".
+        learning_starts=300,
         tensorboard_log=TB_DIR,
     )
 
