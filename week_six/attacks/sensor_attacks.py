@@ -162,13 +162,11 @@ def apply_sensor_bias(
 # PickAndPlace-specific sensor attacks (Phase 2)
 # ---------------------------------------------------------------------------
 
-# Slice constants for the 25-dim FetchPickAndPlace-v4 observation vector.
+# Slice constant for the 25-dim FetchPickAndPlace-v4 observation vector.
+# Only object_pos is needed by name (apply_object_pose_spoof).
+# contact_dropout uses literal [3:9] and [11:20] for readability.
 # Verified against MujocoFetchPickAndPlaceEnv in gymnasium-robotics.
-_OBJ_POS   = slice(3, 6)    # object_pos — also == achieved_goal
-_OBJ_REL   = slice(6, 9)    # obj_rel_pos
-_OBJ_ROT   = slice(11, 14)  # object_rot
-_OBJ_VELP  = slice(14, 17)  # object translational velocity
-_OBJ_VELR  = slice(17, 20)  # object rotational velocity
+_OBJ_POS = slice(3, 6)   # object_pos — also == achieved_goal
 
 
 def apply_object_pose_spoof(
@@ -213,22 +211,34 @@ def apply_contact_dropout(
     obs: Dict[str, np.ndarray],
     seed: Optional[int] = None,
 ) -> Dict[str, np.ndarray]:
-    """Zero only object-relative fields in obs["observation"].
+    """Zero only object-tracking fields in obs["observation"].
 
-    Simulates loss of the object-tracking sensor (camera / tactile) while
-    keeping gripper proprioception (position, finger widths, velocities) intact.
-    Partial version of apply_sensor_dropout restricted to object-tracking dims:
-      object_pos [3:6], obj_rel_pos [6:9], object_rot [11:14],
-      object_velp [14:17], object_velr [17:20].
+    Simulates loss of the external object sensor (camera / lidar) while
+    keeping all gripper joint-encoder proprioception intact — the robot
+    can no longer see the object, but can still feel whether its fingers
+    closed on something.
+
+    Zeroed ranges (contiguous, non-overlapping):
+      [3:9]  — object_pos (3) + obj_rel_pos (3)
+      [11:20] — object_rot (3) + object_velp (3) + object_velr (3)
+
+    Preserved (gripper proprioception):
+      [0:3]  — gripper_pos
+      [9:11] — gripper_state (finger widths) ← joint-encoder, NOT camera
+      [20:25] — gripper_velp (3) + gripper_fingers_vel (2)
+
+    The gap at [9:11] is intentional: finger-width sensors are joint encoders
+    on the gripper actuators, independent of any external object-tracking
+    sensor.  Zeroing them would confuse "camera died" with "gripper broke."
 
     Args:
         obs:  Raw observation dict from FetchPickAndPlace-v4.
-        seed: Unused; accepted for API consistency.
+        seed: Unused; accepted for API consistency with other attack fns.
 
     Returns:
-        New dict with object-tracking fields zeroed.
+        New dict with object-tracking fields zeroed; obs is never mutated.
     """
     attacked = {key: np.asarray(value).copy() for key, value in obs.items()}
-    for sl in (_OBJ_POS, _OBJ_REL, _OBJ_ROT, _OBJ_VELP, _OBJ_VELR):
-        attacked["observation"][sl] = 0.0
+    attacked["observation"][3:9]  = 0.0   # object_pos + obj_rel_pos
+    attacked["observation"][11:20] = 0.0  # object_rot + object_velp + object_velr
     return attacked
