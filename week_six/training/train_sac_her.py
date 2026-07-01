@@ -51,10 +51,10 @@ EVAL_CONDITIONS = [
 
 
 def train_sac_her(
-    total_timesteps: int = 50_000,
+    total_timesteps: int = 500_000,
     seed: int = 0,
-    learning_rate: float = 1e-3,
-    buffer_size: int = 100_000,
+    learning_rate: float = 3e-4,
+    buffer_size: int = 1_000_000,
     batch_size: int = 256,
     gamma: float = 0.95,
     tau: float = 0.05,
@@ -282,8 +282,8 @@ if __name__ == "__main__":
         replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"),
         verbose=1,
         seed=args.seed,
-        learning_rate=1e-3,
-        buffer_size=100_000,
+        learning_rate=3e-4,
+        buffer_size=1_000_000,
         batch_size=256,
         gamma=0.95,
         tau=0.05,

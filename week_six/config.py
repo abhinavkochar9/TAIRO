@@ -56,7 +56,7 @@ ENV_ID_PICKANDPLACE = "FetchPickAndPlace-v4"
 # Verified default from gym.make('FetchPickAndPlace-v4').spec.max_episode_steps = 50.
 # FLAG: 50 steps may be too tight for pick-and-place (approach → grasp → lift →
 # transport → place).  Increase to 100 if clean-episode success rate is low.
-MAX_EPISODE_STEPS_PICKANDPLACE = 50
+MAX_EPISODE_STEPS_PICKANDPLACE = 150
 
 # Benchmark layers
 # B0: clean SAC+HER baseline (no attack)
