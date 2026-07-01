@@ -2,18 +2,26 @@
 Action-level attack functions (Scenario 2 — Actuator / Command Attacks).
 
 manipulate_action : Applies one of several action-space perturbations.
+
+--- PickAndPlace-specific attacks (Phase 2) ---
+attack_type="grip_state_falsification"
+    Negates only action[3] (the gripper open/close command) while leaving
+    the (dx, dy, dz) end-effector dims [0:3] untouched.  Simulates an
+    adversary that intercepts and flips only the gripper command — causing
+    the gripper to open when it should close and vice versa.
 """
 
 from typing import Optional
 import numpy as np
 
 # Supported attack type identifiers
-ATTACK_NONE     = "none"
-ATTACK_NOISE    = "action_noise"
-ATTACK_SCALE    = "action_scale"
-ATTACK_REVERSE  = "action_reverse"
-ATTACK_DELAY    = "action_delay"
-ATTACK_CLIPPING = "action_clipping"
+ATTACK_NONE              = "none"
+ATTACK_NOISE             = "action_noise"
+ATTACK_SCALE             = "action_scale"
+ATTACK_REVERSE           = "action_reverse"
+ATTACK_DELAY             = "action_delay"
+ATTACK_CLIPPING          = "action_clipping"
+ATTACK_GRIP_FALSIFY      = "grip_state_falsification"  # PickAndPlace-specific
 
 
 def manipulate_action(
@@ -27,15 +35,16 @@ def manipulate_action(
     """Apply an action-level attack and return the clipped executed action.
 
     Attack types:
-        ``none``             — pass-through (no modification).
-        ``action_noise``     — additive Gaussian noise with std ``noise_std``.
-        ``action_scale``     — multiply action by ``scale`` (e.g. 1.5 = over-actuation).
-        ``action_reverse``   — negate action (worst-case adversarial flip).
-        ``action_delay``     — replay ``previous_action``; returns zeros at step 0 (None guard).
-        ``action_clipping``  — clip each dim to [-clip_value, clip_value] (default 0.3).
+        ``none``                      — pass-through (no modification).
+        ``action_noise``              — additive Gaussian noise with std ``noise_std``.
+        ``action_scale``              — multiply action by ``scale``.
+        ``action_reverse``            — negate action (adversarial flip).
+        ``action_delay``              — replay ``previous_action``; zeros at step 0.
+        ``action_clipping``           — clip each dim to [-clip_value, clip_value].
+        ``grip_state_falsification``  — negate only action[3] (gripper dim);
+                                        leaves (dx,dy,dz) untouched. PickAndPlace only.
 
-    Actions are clipped to [-1, 1] after modification to respect the
-    FetchReach-v4 action space bounds.
+    Actions are clipped to [-1, 1] after modification.
 
     Args:
         action:          Intended action from the policy.
@@ -67,6 +76,10 @@ def manipulate_action(
     elif attack_type == ATTACK_CLIPPING:
         clip_value = kwargs.get("clip_value", 0.3)
         executed = np.clip(action, -clip_value, clip_value)
+    elif attack_type == ATTACK_GRIP_FALSIFY:
+        # Negate only the gripper dimension (index 3); (dx,dy,dz) unchanged.
+        executed = action.copy()
+        executed[3] = -executed[3]
     else:
         executed = action
 

@@ -1,5 +1,5 @@
 """
-SAC+HER training and evaluation for FetchReach-v4.
+SAC+HER training and evaluation for FetchReach-v4 and FetchPickAndPlace-v4.
 
 train_sac_her         — trains a SAC model with HerReplayBuffer and saves it.
 evaluate_trained_model — runs saved model against all attack conditions and
@@ -8,6 +8,13 @@ evaluate_trained_model — runs saved model against all attack conditions and
 Both functions guard against missing Gymnasium Robotics or SB3 and raise
 RuntimeError with a clear message so the rest of the pipeline can degrade
 gracefully when dependencies are unavailable.
+
+--attack-randomization flag (Phase 4):
+    When set, wraps the training env with AttackRandomizationWrapper so the
+    policy is trained under a mix of clean and adversarial episodes.  Only
+    affects training; evaluation always uses fixed attack magnitudes from
+    ATTACK_LEVELS.  Intended for FetchPickAndPlace-v4 models (pass
+    --env pickandplace --save-path results/models/sac_her_pickandplace_randomized).
 """
 
 import os
@@ -21,9 +28,12 @@ from config import (
     GYM_AVAILABLE,
     MAX_EPISODE_STEPS,
     MODEL_PATH,
+    MODEL_PATH_PICKANDPLACE,
+    MODEL_PATH_PICKANDPLACE_RANDOMIZED,
     RANDOM_SEEDS,
     RESULTS_DIR,
     SB3_AVAILABLE,
+    TB_DIR,
 )
 from envs.fetchreach_env import make_env
 from evaluation.episode_runner import run_episode
@@ -188,15 +198,88 @@ def evaluate_trained_model(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Train SAC+HER on FetchReach-v4.")
+    parser = argparse.ArgumentParser(
+        description="Train SAC+HER on FetchReach-v4 or FetchPickAndPlace-v4."
+    )
     parser.add_argument("--total-timesteps", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--save-path", type=str, default=None)
+    parser.add_argument("--save-path", type=str, default=None,
+                        help="Override model save path (no .zip extension).")
+    parser.add_argument(
+        "--env", choices=["fetchreach", "pickandplace"], default="fetchreach",
+        help="Which environment to train on (default: fetchreach).",
+    )
+    parser.add_argument(
+        "--attack-randomization", action="store_true",
+        help=(
+            "Wrap the training env with AttackRandomizationWrapper so the policy "
+            "trains under a mix of clean and adversarial episodes. "
+            "Intended for FetchPickAndPlace-v4 (--env pickandplace)."
+        ),
+    )
+    parser.add_argument(
+        "--p-clean", type=float, default=0.2,
+        help="Fraction of clean episodes when --attack-randomization is set (default 0.2).",
+    )
     args = parser.parse_args()
 
-    model = train_sac_her(
-        total_timesteps=args.total_timesteps,
+    # --- Environment factory ---------------------------------------------------
+    if args.env == "pickandplace":
+        from envs.fetchpickandplace_env import make_env as _make_env
+        default_save = (
+            MODEL_PATH_PICKANDPLACE_RANDOMIZED
+            if args.attack_randomization
+            else MODEL_PATH_PICKANDPLACE
+        )
+        tb_log_name = (
+            "sac_her_pickandplace_randomized"
+            if args.attack_randomization
+            else "sac_her_pickandplace_clean"
+        )
+    else:
+        from envs.fetchreach_env import make_env as _make_env
+        default_save = MODEL_PATH
+        tb_log_name = "sac_her_fetchreach"
+
+    save_path = args.save_path or default_save
+
+    # --- Build env (optionally wrapped) ----------------------------------------
+    if not GYM_AVAILABLE:
+        raise RuntimeError("Gymnasium Robotics not available.")
+    if not SB3_AVAILABLE:
+        raise RuntimeError("Stable-Baselines3 not available.")
+
+    env = _make_env(seed=args.seed)
+
+    if args.attack_randomization:
+        from training.attack_randomization_wrapper import AttackRandomizationWrapper
+        env = AttackRandomizationWrapper(env, p_clean=args.p_clean, seed=args.seed)
+        print(f"[train] Attack-domain randomization enabled (p_clean={args.p_clean}).")
+
+    # --- Train -----------------------------------------------------------------
+    from stable_baselines3 import SAC
+    from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
+
+    os.makedirs(TB_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    model = SAC(
+        policy="MultiInputPolicy",
+        env=env,
+        replay_buffer_class=HerReplayBuffer,
+        replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"),
+        verbose=1,
         seed=args.seed,
-        save_path=args.save_path,
+        learning_rate=1e-3,
+        buffer_size=100_000,
+        batch_size=256,
+        gamma=0.95,
+        tau=0.05,
+        tensorboard_log=TB_DIR,
     )
-    print(f"Training complete. Model saved to: {model.logger.dir if hasattr(model, 'logger') else args.save_path}")
+
+    model.learn(total_timesteps=args.total_timesteps, tb_log_name=tb_log_name)
+    env.close()
+
+    model.save(save_path)
+    print(f"Training complete. Model saved to: {save_path}")

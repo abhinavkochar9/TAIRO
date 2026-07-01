@@ -143,15 +143,18 @@ def run_episode(
     any_recovery = False
     first_recovery_step: float = float("nan")
 
-    # Per-episode constants sampled once for attacks that require a fixed offset
+    # Per-episode constants sampled once for attacks that require a fixed offset.
+    # object_pose_offset is only used by PickAndPlace object_pose_spoof; None here.
     bias_vector: Optional[np.ndarray] = None
     goal_offset: Optional[np.ndarray] = None
+    object_pose_offset: Optional[np.ndarray] = None
 
     for t in range(MAX_EPISODE_STEPS):
         # -- Observation-level attacks ----------------------------------------
-        policy_obs, bias_vector, goal_offset = apply_sensor_attack(
+        policy_obs, bias_vector, goal_offset, object_pose_offset = apply_sensor_attack(
             condition, obs, t, bias_vector, goal_offset,
             attack_level=attack_level, target_shift_step=target_shift_step,
+            object_pose_offset=object_pose_offset,
         )
 
         # -- Policy action -------------------------------------------------------

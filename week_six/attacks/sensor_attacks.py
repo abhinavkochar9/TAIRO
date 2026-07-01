@@ -1,15 +1,31 @@
 """
 Observation-level attack functions (Scenario 1 — Sensor Attacks).
 
-add_sensor_noise    : Gaussian noise injected into every observation field.
-shift_target        : Desired-goal spoofing / unexpected goal change.
-                      Supports mid-episode onset (shift_step) and a
-                      caller-supplied goal_offset held constant across steps.
-apply_sensor_dropout: Zeros out entire named fields — simulates camera or
-                      proprioception feed going completely dead.
-apply_sensor_bias   : Constant per-dimension offset on obs["observation"]
-                      sampled once per episode — simulates a miscalibrated
-                      sensor that always reads high or low by a fixed amount.
+add_sensor_noise        : Gaussian noise injected into every observation field.
+shift_target            : Desired-goal spoofing / unexpected goal change.
+                          Supports mid-episode onset (shift_step) and a
+                          caller-supplied goal_offset held constant across steps.
+apply_sensor_dropout    : Zeros out entire named fields — simulates camera or
+                          proprioception feed going completely dead.
+                          NOTE for PickAndPlace: zeroing obs["observation"] also
+                          zeros object_pos (indices 3-5), obj_rel_pos (6-8), and
+                          all velocity fields.  This is expected behaviour — the
+                          full sensor bus is dead.
+apply_sensor_bias       : Constant per-dimension offset on obs["observation"]
+                          sampled once per episode — simulates a miscalibrated
+                          sensor that always reads high or low by a fixed amount.
+                          Shape-agnostic: works on both FetchReach (10-dim) and
+                          FetchPickAndPlace (25-dim) observations.
+
+--- PickAndPlace-specific attacks (Phase 2) ---
+apply_object_pose_spoof : Corrupts only the object-position field (obs[3:6]) with
+                          a constant per-episode offset.  Gripper / proprioceptive
+                          fields are untouched.  Mirrors apply_sensor_bias's
+                          sample-once pattern.  Also corrupts achieved_goal since
+                          achieved_goal == object_pos in FetchPickAndPlace-v4.
+apply_contact_dropout   : Zeros only the object-relative observation fields
+                          (object_pos, obj_rel_pos, velocities), leaving gripper
+                          fields intact.  Partial version of apply_sensor_dropout.
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -140,3 +156,79 @@ def apply_sensor_bias(
 
     attacked["observation"] = attacked["observation"] + bias_vector
     return attacked, bias_vector
+
+
+# ---------------------------------------------------------------------------
+# PickAndPlace-specific sensor attacks (Phase 2)
+# ---------------------------------------------------------------------------
+
+# Slice constants for the 25-dim FetchPickAndPlace-v4 observation vector.
+# Verified against MujocoFetchPickAndPlaceEnv in gymnasium-robotics.
+_OBJ_POS   = slice(3, 6)    # object_pos — also == achieved_goal
+_OBJ_REL   = slice(6, 9)    # obj_rel_pos
+_OBJ_ROT   = slice(11, 14)  # object_rot
+_OBJ_VELP  = slice(14, 17)  # object translational velocity
+_OBJ_VELR  = slice(17, 20)  # object rotational velocity
+
+
+def apply_object_pose_spoof(
+    obs: Dict[str, np.ndarray],
+    magnitude: float,
+    offset: Optional[np.ndarray] = None,
+    seed: Optional[int] = None,
+) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
+    """Corrupt only object-position fields in obs["observation"] (indices 3-5).
+
+    Simulates a compromised object-tracking sensor (e.g. vision pipeline
+    reporting wrong object location) while leaving gripper proprioception
+    intact.  The offset is sampled once per episode and held constant.
+
+    IMPORTANT: In FetchPickAndPlace-v4, achieved_goal == object_pos.  This
+    attack therefore also corrupts the achieved_goal key so the policy
+    perceives a false grasp state.
+
+    Args:
+        obs:       Raw observation dict from FetchPickAndPlace-v4.
+        magnitude: Half-range of uniform offset distribution (metres).
+        offset:    Pre-sampled 3-dim offset; sampled here if None.
+        seed:      RNG seed used only when offset must be sampled.
+
+    Returns:
+        Tuple of (attacked_obs, offset_used).
+    """
+    attacked = {key: np.asarray(value).copy() for key, value in obs.items()}
+
+    if offset is None:
+        rng = np.random.default_rng(seed)
+        offset = rng.uniform(-magnitude, magnitude, size=(3,)).astype(np.float32)
+
+    attacked["observation"][_OBJ_POS] = attacked["observation"][_OBJ_POS] + offset
+    # achieved_goal == object_pos — corrupt it consistently so the policy sees
+    # a coherent (though false) world state.
+    attacked["achieved_goal"] = attacked["achieved_goal"] + offset
+    return attacked, offset
+
+
+def apply_contact_dropout(
+    obs: Dict[str, np.ndarray],
+    seed: Optional[int] = None,
+) -> Dict[str, np.ndarray]:
+    """Zero only object-relative fields in obs["observation"].
+
+    Simulates loss of the object-tracking sensor (camera / tactile) while
+    keeping gripper proprioception (position, finger widths, velocities) intact.
+    Partial version of apply_sensor_dropout restricted to object-tracking dims:
+      object_pos [3:6], obj_rel_pos [6:9], object_rot [11:14],
+      object_velp [14:17], object_velr [17:20].
+
+    Args:
+        obs:  Raw observation dict from FetchPickAndPlace-v4.
+        seed: Unused; accepted for API consistency.
+
+    Returns:
+        New dict with object-tracking fields zeroed.
+    """
+    attacked = {key: np.asarray(value).copy() for key, value in obs.items()}
+    for sl in (_OBJ_POS, _OBJ_REL, _OBJ_ROT, _OBJ_VELP, _OBJ_VELR):
+        attacked["observation"][sl] = 0.0
+    return attacked

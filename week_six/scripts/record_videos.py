@@ -120,6 +120,7 @@ def record_pair(policy_name, condition, policy, n_episodes, output_dir):
                 prev_obs = None
                 bias_vector = None
                 goal_offset = None
+                object_pose_offset = None  # PickAndPlace: object_pose_spoof per-episode offset
                 step_distances = []
                 recovery_state = recovery_mod.RecoveryState() if use_recovery else None
 
@@ -127,8 +128,9 @@ def record_pair(policy_name, condition, policy, n_episodes, output_dir):
 
                 for t in range(MAX_EPISODE_STEPS):
                     # Sensor attack: produce policy_obs from raw obs
-                    policy_obs, bias_vector, goal_offset = apply_sensor_attack(
+                    policy_obs, bias_vector, goal_offset, object_pose_offset = apply_sensor_attack(
                         condition, obs, t, bias_vector, goal_offset, attack_level=attack_level,
+                        object_pose_offset=object_pose_offset,
                     )
 
                     # Policy predicts from (possibly attacked) observation
