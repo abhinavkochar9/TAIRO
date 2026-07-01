@@ -1,15 +1,31 @@
 """
-Record 10 episodes of FetchReach-v4 for each (policy, condition) combination.
+Record episodes of FetchReach-v4 for each (policy, condition) combination,
+spread evenly across the canonical sweep seeds (config.RANDOM_SEEDS).
 
 Videos are saved as .mp4 files under:
   results/videos/<condition>/<policy_name>/
+  Named: {policy}_{condition}_seed{N}-episode-{M}.mp4
+
+Seeding note
+------------
+In the full sweep, every episode within a seed block resets with the same
+seed value (env.reset(seed=seed)), making all 30 repetitions per seed
+bit-identical.  The 5 seeds (RANDOM_SEEDS) are where scenario diversity
+comes from — each represents a different goal position.  Recording here
+therefore samples eps_per_seed episodes per seed; they are identical to
+each other within a seed but show different scenarios across seeds.
+
+--n-episodes is the TOTAL episodes per (policy, condition) pair, divided
+evenly across seeds.  Default 10 → 2 episodes per seed × 5 seeds.
+If --n-episodes is not divisible by the number of seeds, the actual total
+is rounded down to eps_per_seed * len(RANDOM_SEEDS).
 
 Usage:
   conda run -n reu_robotics python3 scripts/record_videos.py
-  conda run -n reu_robotics python3 scripts/record_videos.py \
-      --conditions sensor_dropout action_reversal \
-      --policies sac_her sac_her_recovery_v3 \
-      --n-episodes 5
+  conda run -n reu_robotics python3 scripts/record_videos.py \\
+      --conditions sensor_dropout action_reversal \\
+      --policies sac_her sac_her_recovery_v3 \\
+      --n-episodes 10
 """
 
 import argparse
@@ -20,11 +36,10 @@ import numpy as np
 from gymnasium.wrappers import RecordEpisodeStatistics, RecordVideo
 from stable_baselines3 import SAC
 
-from config import MAX_EPISODE_STEPS, RESULTS_DIR
+from config import ATTACK_LEVELS, MAX_EPISODE_STEPS, RANDOM_SEEDS, RESULTS_DIR
 from envs.fetchreach_env import distance_to_goal, make_env
 from policies.sac_her_policy import SACHerPolicy
-from attacks.action_attacks import manipulate_action
-from attacks.sensor_attacks import apply_sensor_bias, apply_sensor_dropout, shift_target
+from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 import recovery.recovery_v2 as _rv2
 import recovery.recovery_v3 as _rv3
 
@@ -54,63 +69,20 @@ _RECOVERY_POLICIES = {"sac_her_recovery_v2", "sac_her_recovery_v3"}
 
 
 # ---------------------------------------------------------------------------
-# Per-step attack helpers
-# ---------------------------------------------------------------------------
-
-def _apply_sensor_attack(condition, obs, t, bias_vector, goal_offset):
-    """Return (policy_obs, bias_vector, goal_offset) after applying sensor attack."""
-    policy_obs = {k: np.asarray(v).copy() for k, v in obs.items()}
-
-    if condition == "sensor_dropout":
-        policy_obs = apply_sensor_dropout(policy_obs, fields=["observation"])
-
-    elif condition == "sensor_bias":
-        policy_obs, bias_vector = apply_sensor_bias(
-            policy_obs, magnitude=0.10, bias_vector=bias_vector
-        )
-
-    elif condition == "goal_spoof_immediate":
-        policy_obs, returned_offset = shift_target(
-            policy_obs, shift_scale=0.10, step=t,
-            shift_step=None, goal_offset=goal_offset,
-        )
-        if returned_offset is not None:
-            goal_offset = returned_offset
-
-    elif condition == "goal_spoof_midep":
-        policy_obs, returned_offset = shift_target(
-            policy_obs, shift_scale=0.10, step=t,
-            shift_step=20, goal_offset=goal_offset,
-        )
-        if returned_offset is not None:
-            goal_offset = returned_offset
-
-    return policy_obs, bias_vector, goal_offset
-
-
-def _apply_action_attack(condition, intended_action, previous_action):
-    """Return the executed action after applying any action-level attack."""
-    if condition == "action_delay":
-        return manipulate_action(
-            intended_action, attack_type="action_delay",
-            previous_action=previous_action,
-        )
-    elif condition == "action_clipping":
-        return manipulate_action(
-            intended_action, attack_type="action_clipping", clip_value=0.30
-        )
-    elif condition == "action_reversal":
-        return manipulate_action(intended_action, attack_type="action_reverse")
-    # clean / sensor attacks: action is unmodified
-    return intended_action.copy()
-
-
-# ---------------------------------------------------------------------------
 # Single (policy, condition) block
 # ---------------------------------------------------------------------------
 
 def record_pair(policy_name, condition, policy, n_episodes, output_dir):
-    """Record n_episodes for one (policy_name, condition) and print a summary."""
+    """Record episodes for one (policy_name, condition), spread across RANDOM_SEEDS.
+
+    n_episodes is the total target; it is divided by len(RANDOM_SEEDS) to get
+    eps_per_seed.  A separate RecordVideo env is created per seed so that video
+    filenames embed the seed: {policy}_{condition}_seed{N}-episode-{M}.mp4.
+
+    All episodes within a seed are identical (the sweep resets with the same seed
+    each time), so eps_per_seed > 1 shows the same scenario repeatedly — useful
+    for confirming consistency but not for adding scenario variety.
+    """
     video_folder = os.path.join(output_dir, condition, policy_name)
     os.makedirs(video_folder, exist_ok=True)
 
@@ -121,82 +93,87 @@ def record_pair(policy_name, condition, policy, n_episodes, output_dir):
         None
     )
 
-    # One env for the whole block; individual episodes use env.reset(seed=ep_idx)
-    base_env = make_env(seed=0, rgb_mode=True)
-    env = RecordEpisodeStatistics(base_env, buffer_length=n_episodes)
-    env = RecordVideo(
-        env,
-        video_folder=video_folder,
-        name_prefix=f"{policy_name}_{condition}",
-        episode_trigger=lambda ep: True,
-    )
+    attack_level = ATTACK_LEVELS[condition]
+
+    # Divide total episodes evenly across seeds; round down if not divisible.
+    eps_per_seed = max(1, n_episodes // len(RANDOM_SEEDS))
 
     successes = []
 
-    try:
-        for ep_idx in range(n_episodes):
-            obs, _info = env.reset(seed=ep_idx)
+    for seed in RANDOM_SEEDS:
+        # Fresh env + wrapper per seed so filenames embed the seed number.
+        base_env = make_env(seed=seed, rgb_mode=True)
+        env = RecordEpisodeStatistics(base_env, buffer_length=eps_per_seed)
+        env = RecordVideo(
+            env,
+            video_folder=video_folder,
+            name_prefix=f"{policy_name}_{condition}_seed{seed}",
+            episode_trigger=lambda ep: True,
+        )
 
-            # Per-episode stateful attack state
-            previous_action = None   # None is the step-0 sentinel for action_delay
-            prev_obs = None
-            bias_vector = None
-            goal_offset = None
-            step_distances = []
-            recovery_state = recovery_mod.RecoveryState() if use_recovery else None
+        try:
+            for within_seed_ep in range(eps_per_seed):
+                obs, _info = env.reset(seed=seed)  # same seed each rep — matches sweep
 
-            total_reward = 0.0
-            ep_success = False
+                # Per-episode stateful attack state
+                previous_action = None   # None is the step-0 sentinel for action_delay
+                prev_obs = None
+                bias_vector = None
+                goal_offset = None
+                step_distances = []
+                recovery_state = recovery_mod.RecoveryState() if use_recovery else None
 
-            for t in range(MAX_EPISODE_STEPS):
-                # Sensor attack: produce policy_obs from raw obs
-                policy_obs, bias_vector, goal_offset = _apply_sensor_attack(
-                    condition, obs, t, bias_vector, goal_offset
-                )
+                total_reward = 0.0
 
-                # Policy predicts from (possibly attacked) observation
-                intended_action = np.asarray(
-                    policy(env, policy_obs), dtype=np.float32
-                )
-
-                # Action attack
-                executed_action = _apply_action_attack(
-                    condition, intended_action, previous_action
-                )
-
-                # Recovery uses raw unattacked obs so it steers toward real goal
-                if use_recovery:
-                    executed_action, _triggered = recovery_mod.maybe_apply_recovery(
-                        obs=obs,
-                        action=executed_action,
-                        prev_obs=prev_obs,
-                        prev_action=previous_action,
-                        step_distances=step_distances,
-                        step=t,
-                        env=env,
-                        state=recovery_state,
+                for t in range(MAX_EPISODE_STEPS):
+                    # Sensor attack: produce policy_obs from raw obs
+                    policy_obs, bias_vector, goal_offset = apply_sensor_attack(
+                        condition, obs, t, bias_vector, goal_offset, attack_level=attack_level,
                     )
 
-                prev_obs = {k: np.asarray(v).copy() for k, v in obs.items()}
-                previous_action = (
-                    intended_action.copy() if condition == "action_delay" else executed_action.copy()
+                    # Policy predicts from (possibly attacked) observation
+                    intended_action = np.asarray(
+                        policy(env, policy_obs), dtype=np.float32
+                    )
+
+                    # Action attack
+                    executed_action = apply_action_attack(
+                        condition, intended_action, previous_action, attack_level=attack_level,
+                    )
+
+                    # Recovery uses raw unattacked obs so it steers toward real goal
+                    if use_recovery:
+                        executed_action, _triggered = recovery_mod.maybe_apply_recovery(
+                            obs=obs,
+                            action=executed_action,
+                            prev_obs=prev_obs,
+                            prev_action=previous_action,
+                            step_distances=step_distances,
+                            step=t,
+                            env=env,
+                            state=recovery_state,
+                        )
+
+                    prev_obs = {k: np.asarray(v).copy() for k, v in obs.items()}
+                    previous_action = (
+                        intended_action.copy() if condition == "action_delay" else executed_action.copy()
+                    )
+
+                    obs, reward, terminated, truncated, info = env.step(executed_action)
+                    step_distances.append(distance_to_goal(obs))
+                    total_reward += float(reward)
+
+                    if terminated or truncated:
+                        break
+
+                ep_success = bool(info.get("is_success", False))
+                successes.append(ep_success)
+                print(
+                    f"  seed={seed} ep={within_seed_ep} | success={ep_success} | reward={total_reward:.2f}"
                 )
 
-                obs, reward, terminated, truncated, info = env.step(executed_action)
-                step_distances.append(distance_to_goal(obs))
-                total_reward += float(reward)
-
-                if terminated or truncated:
-                    break
-
-            ep_success = bool(info.get("is_success", False))
-            successes.append(ep_success)
-            print(
-                f"  ep {ep_idx:2d} | success={ep_success} | reward={total_reward:.2f}"
-            )
-
-    finally:
-        env.close()
+        finally:
+            env.close()
 
     rate = sum(successes) / len(successes) if successes else 0.0
     print(f"  Success rate: {rate:.1%} ({sum(successes)}/{len(successes)})\n")
@@ -222,7 +199,11 @@ def main():
     )
     parser.add_argument(
         "--n-episodes", type=int, default=10,
-        help="Number of episodes per (policy, condition) pair.",
+        help=(
+            "Total episodes per (policy, condition) pair, spread across seeds. "
+            "Divided by len(RANDOM_SEEDS) to get episodes-per-seed; rounded down "
+            "if not evenly divisible. Default 10 → 2 per seed × 5 seeds."
+        ),
     )
     parser.add_argument(
         "--output-dir", default=os.path.join(RESULTS_DIR, "videos"),

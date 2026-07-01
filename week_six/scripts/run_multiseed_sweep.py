@@ -24,6 +24,7 @@ from config import (
     RANDOM_SEEDS,
     ALL_CONDITIONS,
     ALL_METHODS,
+    ATTACK_LEVELS,
     N_EPISODES_PER_SEED,
     DATA_DIR,
     MODEL_PATH,
@@ -31,17 +32,6 @@ from config import (
 )
 from envs.fetchreach_env import make_env
 from evaluation.episode_runner import run_episode
-
-_ATTACK_LEVELS = {
-    "clean":                0.0,
-    "sensor_dropout":       0.0,
-    "sensor_bias":          0.1,
-    "action_clipping":      0.3,
-    "action_delay":         0.0,
-    "action_reversal":      0.0,
-    "goal_spoof_immediate": 0.1,
-    "goal_spoof_midep":     0.1,
-}
 
 _RECOVERY_VERSION = {
     "sac_her":             "none",
@@ -81,7 +71,7 @@ def main() -> None:
         print(f"\n[sweep] seed={seed}")
 
         for condition in ALL_CONDITIONS:
-            attack_level = _ATTACK_LEVELS[condition]
+            attack_level = ATTACK_LEVELS[condition]
 
             for method in ALL_METHODS:
                 if model is None:

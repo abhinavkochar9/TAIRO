@@ -37,13 +37,7 @@ import pandas as pd
 
 from config import MAX_EPISODE_STEPS
 from envs.fetchreach_env import distance_to_goal
-from attacks.sensor_attacks import (
-    add_sensor_noise,
-    apply_sensor_bias,
-    apply_sensor_dropout,
-    shift_target,
-)
-from attacks.action_attacks import manipulate_action
+from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 from policies.rule_based_policy import rule_based_reach_policy
 
 
@@ -90,10 +84,6 @@ class EpisodeResult:
 # ---------------------------------------------------------------------------
 # Episode runner
 # ---------------------------------------------------------------------------
-
-# Mid-episode onset step for goal_spoof_midep
-GOAL_SPOOF_MIDEP_STEP = 20
-
 
 def run_episode(
     env,
@@ -159,40 +149,10 @@ def run_episode(
 
     for t in range(MAX_EPISODE_STEPS):
         # -- Observation-level attacks ----------------------------------------
-        policy_obs = obs
-
-        if condition == "sensor_noise":
-            policy_obs = add_sensor_noise(obs, noise_std=attack_level)
-
-        elif condition == "sensor_dropout":
-            policy_obs = apply_sensor_dropout(obs, fields=["observation"])
-
-        elif condition == "sensor_bias":
-            policy_obs, bias_vector = apply_sensor_bias(
-                obs, magnitude=attack_level, bias_vector=bias_vector
-            )
-
-        elif condition == "goal_spoof_immediate":
-            policy_obs, goal_offset = shift_target(
-                obs, shift_scale=attack_level,
-                step=t, shift_step=None, goal_offset=goal_offset,
-            )
-
-        elif condition == "goal_spoof_midep":
-            policy_obs, new_offset = shift_target(
-                obs, shift_scale=attack_level,
-                step=t, shift_step=GOAL_SPOOF_MIDEP_STEP, goal_offset=goal_offset,
-            )
-            if new_offset is not None:
-                goal_offset = new_offset
-            policy_obs = policy_obs  # already updated above
-
-        # Legacy condition — kept for backwards compatibility with Week 4 data
-        elif condition == "target_shift" and t >= target_shift_step:
-            policy_obs, goal_offset = shift_target(
-                obs, shift_scale=attack_level,
-                step=t, shift_step=None, goal_offset=goal_offset,
-            )
+        policy_obs, bias_vector, goal_offset = apply_sensor_attack(
+            condition, obs, t, bias_vector, goal_offset,
+            attack_level=attack_level, target_shift_step=target_shift_step,
+        )
 
         # -- Policy action -------------------------------------------------------
         if policy_fn is not None:
@@ -205,17 +165,9 @@ def run_episode(
         intended_action = np.asarray(action, dtype=np.float32).copy()
 
         # -- Action-level attacks ------------------------------------------------
-        executed_action = intended_action.copy()
-        if condition == "action_noise":
-            executed_action = manipulate_action(intended_action, "action_noise", noise_std=attack_level)
-        elif condition == "action_scale":
-            executed_action = manipulate_action(intended_action, "action_scale", scale=1.0 + attack_level)
-        elif condition == "action_reversal":
-            executed_action = manipulate_action(intended_action, "action_reverse")
-        elif condition == "action_delay":
-            executed_action = manipulate_action(intended_action, "action_delay", previous_action=previous_action)
-        elif condition == "action_clipping":
-            executed_action = manipulate_action(intended_action, "action_clipping", clip_value=attack_level)
+        executed_action = apply_action_attack(
+            condition, intended_action, previous_action, attack_level=attack_level
+        )
 
         # -- Recovery (TAIRO C5) -------------------------------------------------
         recovery_triggered = False

@@ -26,6 +26,18 @@ ALL_CONDITIONS = [
     "goal_spoof_midep",
 ]
 
+# Per-condition attack magnitude — single source of truth used by sweep and recordings.
+ATTACK_LEVELS = {
+    "clean":                0.0,
+    "sensor_dropout":       0.0,
+    "sensor_bias":          0.1,
+    "action_clipping":      0.3,
+    "action_delay":         0.0,
+    "action_reversal":      0.0,
+    "goal_spoof_immediate": 0.1,
+    "goal_spoof_midep":     0.1,
+}
+
 # Benchmark layers
 # B0: clean SAC+HER baseline (no attack)
 # B1: SAC+HER under each attack condition (no recovery)
