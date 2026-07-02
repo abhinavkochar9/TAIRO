@@ -247,6 +247,92 @@ def fig4_trustworthiness_scores(summary_df: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Figure 5 — Final distance by condition: clean_2M vs randomized_{500k,2M}
+# ---------------------------------------------------------------------------
+
+# Labels for the 3 PickAndPlace-native conditions not in CONDITION_LABELS
+_PICKANDPLACE_COND_LABELS = {
+    "object_pose_spoof":        "Object\nPose Spoof",
+    "grip_state_falsification": "Grip\nFalsify",
+    "contact_dropout":          "Contact\nDropout",
+}
+
+_MODEL_COLORS = {
+    "clean_2M":        "#1565C0",
+    "randomized_500k": "#E65100",
+    "randomized_2M":   "#B71C1C",
+}
+
+_MODEL_LABELS = {
+    "clean_2M":        "Clean-trained (2M steps)",
+    "randomized_500k": "Domain-randomized (500k steps)",
+    "randomized_2M":   "Domain-randomized (2M steps)",
+}
+
+_SPAWN_DIST = 0.337   # object-to-goal distance at reset when object never moves
+
+
+def fig_final_distance_by_condition() -> None:
+    """Grouped bar chart of final_distance for sac_her across all 11 conditions.
+
+    Loads the three PickAndPlace summary CSVs directly (does not depend on the
+    FetchReach CSVs used by fig1–fig4).  The visual point: both randomized
+    models pin at ~0.337m (object never leaves spawn) while clean_2M varies
+    meaningfully with condition difficulty.
+    """
+    summary_files = {
+        "clean_2M":        os.path.join(DATA_DIR, "sac_her_pickandplace_clean_2M_summary.csv"),
+        "randomized_500k": os.path.join(DATA_DIR, "sac_her_pickandplace_randomized_500k_summary.csv"),
+        "randomized_2M":   os.path.join(DATA_DIR, "sac_her_pickandplace_randomized_2M_summary.csv"),
+    }
+
+    # Build per-model {condition: final_distance} map (sac_her rows only)
+    model_data = {}
+    for name, path in summary_files.items():
+        df = pd.read_csv(path)
+        sac = df[df["method"] == "sac_her"]
+        model_data[name] = {row["condition"]: row["final_distance"] for _, row in sac.iterrows()}
+
+    conditions = ALL_CONDITIONS   # 11 entries including "clean"
+    cond_labels = {**CONDITION_LABELS, **_PICKANDPLACE_COND_LABELS}
+
+    x = np.arange(len(conditions))
+    n = len(model_data)
+    width = 0.24
+
+    fig, ax = plt.subplots(figsize=(15, 5.5))
+
+    for i, (model_name, cond_map) in enumerate(model_data.items()):
+        dists = [cond_map.get(c, np.nan) for c in conditions]
+        offset = (i - n / 2 + 0.5) * width
+        ax.bar(
+            x + offset, dists, width,
+            label=_MODEL_LABELS[model_name],
+            color=_MODEL_COLORS[model_name],
+            alpha=0.85, edgecolor="white",
+        )
+
+    # Horizontal reference at the object spawn distance
+    ax.axhline(
+        _SPAWN_DIST, color="#B71C1C", linestyle="--", linewidth=1.2, alpha=0.55,
+        label=f"~{_SPAWN_DIST}m — object at spawn (never grasped)",
+    )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([cond_labels.get(c, c) for c in conditions], fontsize=8.5)
+    ax.set_ylabel("Final Object Distance to Goal (m)")
+    ax.set_ylim(0, 0.58)
+    ax.set_title(
+        "Final Object Distance to Goal — Domain-Randomized Training Failed to Learn Grasping\n"
+        "Randomized models pin at ~0.337m across all conditions (object never moves from spawn)",
+        fontsize=11,
+    )
+    ax.legend(loc="upper right", fontsize=9)
+
+    _savefig(fig, "fig_final_distance_by_condition.png")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

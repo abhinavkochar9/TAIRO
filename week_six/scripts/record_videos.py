@@ -36,8 +36,8 @@ import numpy as np
 from gymnasium.wrappers import RecordEpisodeStatistics, RecordVideo
 from stable_baselines3 import SAC
 
-from config import ATTACK_LEVELS, MAX_EPISODE_STEPS, RANDOM_SEEDS, RESULTS_DIR
-from envs.fetchreach_env import distance_to_goal, make_env
+from config import ALL_CONDITIONS, ATTACK_LEVELS, MAX_EPISODE_STEPS, RANDOM_SEEDS, RESULTS_DIR
+from envs.fetchpickandplace_env import distance_to_goal, make_env
 from policies.sac_her_policy import SACHerPolicy
 from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 import recovery.recovery_v2 as _rv2
@@ -46,17 +46,6 @@ import recovery.recovery_v3 as _rv3
 # ---------------------------------------------------------------------------
 # Canonical lists
 # ---------------------------------------------------------------------------
-
-ALL_CONDITIONS = [
-    "clean",
-    "sensor_dropout",
-    "sensor_bias",
-    "goal_spoof_immediate",
-    "goal_spoof_midep",
-    "action_delay",
-    "action_clipping",
-    "action_reversal",
-]
 
 ALL_POLICIES = [
     "sac_her",
@@ -213,7 +202,7 @@ def main():
     )
     parser.add_argument(
         "--model-path",
-        default=os.path.join(RESULTS_DIR, "models", "sac_her_fetchreach_model"),
+        default=os.path.join(RESULTS_DIR, "models", "sac_her_pickandplace_clean_2M"),
         help="Path to the SAC+HER model zip (without .zip extension).",
     )
     args = parser.parse_args()
