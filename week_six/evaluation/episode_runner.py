@@ -35,7 +35,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from config import MAX_EPISODE_STEPS
+from config import MAX_EPISODE_STEPS, SAFETY_ACTION_NORM_THRESHOLD
 from envs.fetchreach_env import distance_to_goal
 from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 from policies.rule_based_policy import rule_based_reach_policy
@@ -96,6 +96,7 @@ def run_episode(
     use_recovery: bool = False,
     recovery_version: str = "v3",
     target_shift_step: int = 25,
+    max_steps: int = MAX_EPISODE_STEPS,
 ) -> Tuple[EpisodeResult, pd.DataFrame]:
     """Run one episode and return a summary plus a step-level log DataFrame.
 
@@ -149,7 +150,7 @@ def run_episode(
     goal_offset: Optional[np.ndarray] = None
     object_pose_offset: Optional[np.ndarray] = None
 
-    for t in range(MAX_EPISODE_STEPS):
+    for t in range(max_steps):
         # -- Observation-level attacks ----------------------------------------
         policy_obs, bias_vector, goal_offset, object_pose_offset = apply_sensor_attack(
             condition, obs, t, bias_vector, goal_offset,
@@ -206,7 +207,7 @@ def run_episode(
         current_distance = distance_to_goal(obs)
         step_distances.append(current_distance)   # feed recovery trend detector
         is_success = float(info.get("is_success", 0.0))
-        safety_violation_step = float(np.linalg.norm(executed_action) > 1.5)
+        safety_violation_step = float(np.linalg.norm(executed_action) > SAFETY_ACTION_NORM_THRESHOLD)
 
         step_logs.append({
             "method": method,

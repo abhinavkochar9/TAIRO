@@ -38,6 +38,8 @@ C5 Failure Recovery & Safety Control     → recovery_score         0.30
 import numpy as np
 import pandas as pd
 
+from config import SAFETY_ACTION_NORM_THRESHOLD  # noqa: F401 — re-exported for episode_runner
+
 # ---------------------------------------------------------------------------
 # Equal weights — 0.20 × each component
 # ---------------------------------------------------------------------------
@@ -61,10 +63,6 @@ assert abs(
     + WEIGHT_RECOVERY
     - 1.0
 ) < 1e-9, "TAIRO argued weights must sum to 1.0"
-
-# Safety violation threshold: action norm above this is flagged as unsafe.
-# Matches the threshold used in episode_runner.
-SAFETY_ACTION_NORM_THRESHOLD = 1.5
 
 
 def summarize_results(df: pd.DataFrame) -> pd.DataFrame:

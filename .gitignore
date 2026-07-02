@@ -1,4 +1,8 @@
 CLAUDE.md
 .claude
+week_six/results/models
 week_six/results/videos
 session_summary.md
+week_six/results/tensorboard/
+week_six/results/tb_logs/
+week_six/results/data/step_logs*.csv

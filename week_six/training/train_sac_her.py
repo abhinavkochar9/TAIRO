@@ -222,6 +222,16 @@ if __name__ == "__main__":
         "--p-clean", type=float, default=0.2,
         help="Fraction of clean episodes when --attack-randomization is set (default 0.2).",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help=(
+            "Load an existing model from --save-path (or the default path) and "
+            "continue training from where it left off. The step counter is NOT "
+            "reset so TensorBoard x-axis remains cumulative. "
+            "A replay buffer checkpoint (<save_path>_replay_buffer.pkl) is loaded "
+            "automatically if it exists alongside the model."
+        ),
+    )
     args = parser.parse_args()
 
     # --- Environment factory ---------------------------------------------------
@@ -275,27 +285,62 @@ if __name__ == "__main__":
     os.makedirs(TB_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    model = SAC(
-        policy="MultiInputPolicy",
-        env=env,
-        replay_buffer_class=HerReplayBuffer,
-        replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"),
-        verbose=1,
-        seed=args.seed,
-        learning_rate=3e-4,
-        buffer_size=1_000_000,
-        batch_size=256,
-        gamma=0.95,
-        tau=0.05,
-        # Must be > max_episode_steps (150) so at least one full episode
-        # completes before HER tries to sample.  SB3 default is 100 which
-        # triggers "Unable to sample before end of first episode".
-        learning_starts=300,
-        tensorboard_log=TB_DIR,
-    )
+    if args.resume:
+        # SAC.load accepts both "path" and "path.zip"; MODEL_PATH has no extension.
+        model_file = save_path + ".zip" if os.path.exists(save_path + ".zip") else save_path
+        if not os.path.exists(model_file):
+            raise FileNotFoundError(
+                f"--resume was set but no model found at: {save_path}(.zip)\n"
+                "Train from scratch first, or check --save-path."
+            )
+        print(f"[resume] Loading model from: {model_file}")
+        model = SAC.load(
+            save_path,          # SB3 appends .zip automatically
+            env=env,
+            tensorboard_log=TB_DIR,
+        )
+        # Restore replay buffer if a checkpoint was saved alongside the model.
+        replay_buf_path = save_path + "_replay_buffer.pkl"
+        if os.path.exists(replay_buf_path):
+            print(f"[resume] Loading replay buffer from: {replay_buf_path}")
+            model.load_replay_buffer(replay_buf_path)
+        else:
+            print(
+                "[resume] No replay buffer checkpoint found — buffer starts empty. "
+                f"The first {model.learning_starts} steps will be pure exploration "
+                "before gradient updates resume."
+            )
+        reset_num_timesteps = False     # keep cumulative step count for TensorBoard
+    else:
+        model = SAC(
+            policy="MultiInputPolicy",
+            env=env,
+            replay_buffer_class=HerReplayBuffer,
+            replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"),
+            verbose=1,
+            seed=args.seed,
+            learning_rate=3e-4,
+            buffer_size=1_000_000,
+            batch_size=256,
+            gamma=0.95,
+            tau=0.05,
+            # Must be > max_episode_steps (150) so at least one full episode
+            # completes before HER tries to sample.  SB3 default is 100 which
+            # triggers "Unable to sample before end of first episode".
+            learning_starts=300,
+            tensorboard_log=TB_DIR,
+        )
+        reset_num_timesteps = True      # fresh run starts counter at 0
 
-    model.learn(total_timesteps=args.total_timesteps, tb_log_name=tb_log_name)
+    model.learn(
+        total_timesteps=args.total_timesteps,
+        tb_log_name=tb_log_name,
+        reset_num_timesteps=reset_num_timesteps,
+    )
     env.close()
 
     model.save(save_path)
+    # Save replay buffer alongside the model so a future --resume can reuse it.
+    model.save_replay_buffer(save_path + "_replay_buffer.pkl")
     print(f"Training complete. Model saved to: {save_path}")
+    print(f"Replay buffer saved to: {save_path}_replay_buffer.pkl")

@@ -44,7 +44,7 @@ from attacks.action_attacks import manipulate_action, ATTACK_GRIP_FALSIFY
 
 # Onset step for goal_spoof_midep (matches the value previously defined
 # in episode_runner.py and hardcoded as 20 in record_videos.py).
-GOAL_SPOOF_MIDEP_STEP = 20
+GOAL_SPOOF_MIDEP_STEP = 60
 
 
 def apply_sensor_attack(

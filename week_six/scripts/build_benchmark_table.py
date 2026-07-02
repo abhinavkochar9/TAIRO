@@ -1,14 +1,33 @@
 """
 Build the B0–B3 mean ± std benchmark table.
 
-Reads:  results/data/episode_results.csv
-Writes: results/data/summary.csv  — one row per (benchmark_layer, method, condition)
-        with mean metrics and C1–C5 trustworthiness scores.
+Reads:  results/data/episode_results.csv  (default, backward-compatible)
+        or any path supplied via --input-file / --input-path
+Writes: results/data/summary.csv  (default)
+        or a stem-derived name matching the input, e.g.
+        episode_results_sac_her_pickandplace_clean_2M.csv
+        → results/data/sac_her_pickandplace_clean_2M_summary.csv
+        Override with --output-file.
 
 Also prints a formatted success_rate and final_distance table to stdout so
 the mentor-facing results are visible without opening the CSV.
+
+Usage
+-----
+FetchReach (original default, unchanged):
+    conda run -n reu_robotics python3 scripts/build_benchmark_table.py
+
+PickAndPlace — specific file:
+    conda run -n reu_robotics python3 scripts/build_benchmark_table.py \\
+        --input-file results/data/episode_results_sac_her_pickandplace_clean_2M.csv
+
+With explicit output path:
+    conda run -n reu_robotics python3 scripts/build_benchmark_table.py \\
+        --input-file results/data/episode_results_sac_her_pickandplace_clean_2M.csv \\
+        --output-file results/data/my_summary.csv
 """
 
+import argparse
 import os
 import sys
 
@@ -19,14 +38,69 @@ import pandas as pd
 from config import DATA_DIR, BENCHMARK_LAYERS
 from evaluation.metrics import summarize_results, add_trustworthiness_scores
 
+_DEFAULT_INPUT = os.path.join(DATA_DIR, "episode_results.csv")
+
 
 def _fmt(series: pd.Series) -> str:
     """Return 'mean ± std' string for a numeric series."""
     return f"{series.mean():.3f} ± {series.std():.3f}"
 
 
+def _derive_output_path(input_path: str) -> str:
+    """
+    Derive a variant-specific summary filename from the input stem so that
+    running the script for multiple model variants doesn't clobber one file.
+
+    episode_results_sac_her_pickandplace_clean_2M.csv
+      → results/data/sac_her_pickandplace_clean_2M_summary.csv
+
+    episode_results.csv (legacy FetchReach default)
+      → results/data/summary.csv  (backward-compatible)
+    """
+    stem = os.path.splitext(os.path.basename(input_path))[0]  # strip .csv
+    prefix = "episode_results_"
+    if stem == "episode_results":
+        return os.path.join(DATA_DIR, "summary.csv")
+    if stem.startswith(prefix):
+        variant = stem[len(prefix):]
+        return os.path.join(DATA_DIR, f"{variant}_summary.csv")
+    return os.path.join(DATA_DIR, f"{stem}_summary.csv")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build B0–B3 mean ± std benchmark table from a sweep CSV.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--input-file", "--input-path",
+        dest="input_file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to the episode_results CSV to process. "
+            f"Defaults to {_DEFAULT_INPUT} (FetchReach backward-compat)."
+        ),
+    )
+    parser.add_argument(
+        "--output-file",
+        dest="output_file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path for the output summary CSV. "
+            "Defaults to a name derived from the input filename."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    ep_path = os.path.join(DATA_DIR, "episode_results.csv")
+    args = _parse_args()
+
+    ep_path = args.input_file if args.input_file is not None else _DEFAULT_INPUT
     df = pd.read_csv(ep_path)
     print(f"[table] Loaded {len(df)} episodes from {ep_path}")
 
@@ -45,7 +119,11 @@ def main() -> None:
 
     summary_df = pd.concat(summary_parts, ignore_index=True)
 
-    out_path = os.path.join(DATA_DIR, "summary.csv")
+    out_path = (
+        args.output_file
+        if args.output_file is not None
+        else _derive_output_path(ep_path)
+    )
     summary_df.to_csv(out_path, index=False)
     print(f"[table] Wrote {len(summary_df)} rows → {out_path}")
 

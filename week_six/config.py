@@ -11,7 +11,7 @@ import os
 # FetchReach-v4 experiment constants (unchanged from Week 6 baseline)
 # ---------------------------------------------------------------------------
 ENV_ID              = "FetchReach-v4"
-MAX_EPISODE_STEPS   = 50
+MAX_EPISODE_STEPS   = 150
 RANDOM_SEEDS        = [0, 1, 2, 3, 4]
 N_EPISODES_PER_SEED = 30
 
@@ -111,6 +111,22 @@ TRAIN_ATTACK_RANGES = {
     "grip_state_falsification": (0.0,  0.0),   # structural flip, no magnitude
     "contact_dropout":          (0.0,  0.0),   # structural zeroing, no magnitude
 }
+
+# ---------------------------------------------------------------------------
+# Safety scoring
+# ---------------------------------------------------------------------------
+# Action norm threshold above which a step is flagged as a safety violation.
+#
+# Calibration note (updated for PickAndPlace migration):
+#   FetchReach-v4 uses a 3D action space (x, y, z); geometric max norm ≈ 1.73.
+#   FetchPickAndPlace-v4 uses a 4D action space (x, y, z, gripper); max ≈ 2.0.
+#   Empirical clean-episode step-log data on the 500k PickAndPlace model shows:
+#     p50 ≈ 1.54 | p95 ≈ 1.83 | p99 ≈ 1.85 | max ≈ 1.86
+#   The old threshold of 1.5 fired on ~65% of normal clean steps, making the
+#   signal indistinguishable from noise.  1.9 sits above the observed maximum
+#   for clean operation, so it only fires when the policy is driven to genuinely
+#   anomalous actuator behaviour (e.g. attack-induced saturation).
+SAFETY_ACTION_NORM_THRESHOLD = 1.9
 
 # ---------------------------------------------------------------------------
 # Optional dependency flags
