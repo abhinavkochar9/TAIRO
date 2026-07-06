@@ -7,7 +7,7 @@ reliability_score      — Does the robot succeed under its operating condition?
 robustness_score       — How well does performance hold under disturbances?
 cyber_resilience_score — How well does the robot resist adversarial attacks?
 safety_score           — Does the robot avoid unsafe actuator behaviour?
-recovery_score         — Does the robot detect and correct attack-induced drift?
+recovery_score         — Does the robot improve success rate over no-recovery?
 
 Composite scores
 ----------------
@@ -35,10 +35,12 @@ C4 RL-Based Adaptation                   → safety_score           0.15
 C5 Failure Recovery & Safety Control     → recovery_score         0.30
 """
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 
-from config import SAFETY_ACTION_NORM_THRESHOLD  # noqa: F401 — re-exported for episode_runner
+from config import SAFETY_ARM_JERK_THRESHOLD, SAFETY_GRIPPER_JERK_THRESHOLD  # noqa: F401 — re-exported for reference
 
 # ---------------------------------------------------------------------------
 # Equal weights — 0.20 × each component
@@ -94,7 +96,10 @@ def summarize_results(df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-def add_trustworthiness_scores(summary: pd.DataFrame) -> pd.DataFrame:
+def add_trustworthiness_scores(
+    summary: pd.DataFrame,
+    baseline_summary: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """Compute TAIRO C1–C5 sub-scores and two composite trustworthiness scores.
 
     Sub-score definitions
@@ -114,9 +119,13 @@ def add_trustworthiness_scores(summary: pd.DataFrame) -> pd.DataFrame:
 
     C4 Safety             = 1 - safety_violation_rate
 
-    C5 Recovery           = recovery_rate for attacked conditions;
-                          clean condition is set to 1.0 by convention since
-                          there is nothing to recover from.
+    C5 Recovery           = max(0, this_method_success_rate - no_recovery_success_rate)
+                          where no_recovery_success_rate is the sac_her (B1)
+                          success rate for the same (condition, attack_level).
+                          Clean condition is set to 1.0 by convention — nothing
+                          to recover from.  Base sac_her rows receive 0.0.
+                          ``recovery_rate`` (trigger frequency) is preserved as
+                          its own column but is NOT used as the score.
 
     Composite scores
     ----------------
@@ -125,7 +134,13 @@ def add_trustworthiness_scores(summary: pd.DataFrame) -> pd.DataFrame:
     trustworthiness_score          : alias for trustworthiness_score_weighted
 
     Args:
-        summary: Output of summarize_results().
+        summary:          Output of summarize_results().
+        baseline_summary: Optional summary DataFrame containing sac_her B1 rows
+                          used as the C5 no-recovery baseline.  Pass the B1
+                          summarize_results() output when scoring B2/B3 layers
+                          so the cross-layer sac_her success rates are available.
+                          If None, sac_her rows within ``summary`` itself are
+                          used (correct for B0/B1 single-layer calls).
 
     Returns:
         summary with C1–C5 sub-score columns, both composite columns, and the
@@ -151,8 +166,28 @@ def add_trustworthiness_scores(summary: pd.DataFrame) -> pd.DataFrame:
     out["safety_score"] = (1.0 - out["safety_violation_rate"]).clip(0.0, 1.0)
 
     # -- C5: Recovery (Failure Recovery & Safety Control) ----------------------
-    out["recovery_score"] = out["recovery_rate"].clip(0.0, 1.0)
-    out.loc[out["condition"] == "clean", "recovery_score"] = 1.0
+    # Formula: max(0, this_method_success - no_recovery_baseline_success)
+    # Baseline is sac_her success rate for the same (condition, attack_level).
+    # Use baseline_summary if provided (needed when scoring B2/B3 without B1
+    # sac_her rows present in `summary`); otherwise fall back to sac_her rows
+    # within `summary` itself.
+    ref = baseline_summary if baseline_summary is not None else out
+    no_recovery_sr = (
+        ref[ref["method"] == "sac_her"]
+        .set_index(["condition", "attack_level"])["success_rate"]
+        .to_dict()
+    )
+
+    def _recovery_score(row: pd.Series) -> float:
+        if row["condition"] == "clean":
+            return 1.0
+        if row["method"] == "sac_her":
+            return 0.0
+        key = (row["condition"], row["attack_level"])
+        baseline = no_recovery_sr.get(key, 0.0)
+        return max(0.0, float(row["success_rate"]) - baseline)
+
+    out["recovery_score"] = out.apply(_recovery_score, axis=1)
 
     # -- Composite: equal weights (0.20 × each) --------------------------------
     out["trustworthiness_score_equal"] = WEIGHT_EQUAL * (

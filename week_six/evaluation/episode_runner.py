@@ -35,7 +35,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from config import MAX_EPISODE_STEPS, SAFETY_ACTION_NORM_THRESHOLD
+from config import MAX_EPISODE_STEPS, SAFETY_ARM_JERK_THRESHOLD, SAFETY_GRIPPER_JERK_THRESHOLD
 from envs.fetchreach_env import distance_to_goal
 from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 from policies.rule_based_policy import rule_based_reach_policy
@@ -72,7 +72,7 @@ class EpisodeResult:
     seed: int
     attack_level: float
     total_reward: float
-    success: float           # 1.0 if is_success was ever True, else 0.0
+    success: float           # 1.0 if is_success is True at the final timestep
     final_distance: float    # distance_to_goal at last step
     episode_length: int
     action_smoothness: float
@@ -191,6 +191,20 @@ def run_episode(
                 if np.isnan(first_recovery_step):
                     first_recovery_step = float(t)
 
+        # -- Per-channel split jerk metric for C4 safety scoring -----------------
+        # Computed here, before previous_action is updated, so previous_action
+        # still holds the prior step's executed action.
+        # Step 0: previous_action is None → skip (no jerk defined, no violation).
+        if previous_action is not None:
+            _arm_jerk  = float(np.linalg.norm(executed_action[:3] - previous_action[:3]))
+            _grip_jerk = float(abs(executed_action[3] - previous_action[3]))
+            safety_violation_step = float(
+                _arm_jerk  > SAFETY_ARM_JERK_THRESHOLD or
+                _grip_jerk > SAFETY_GRIPPER_JERK_THRESHOLD
+            )
+        else:
+            safety_violation_step = 0.0
+
         previous_obs = obs
         # For action_delay, store the policy's intended action so the next step
         # replays it as a genuine 1-step lag. Storing executed_action would
@@ -207,7 +221,6 @@ def run_episode(
         current_distance = distance_to_goal(obs)
         step_distances.append(current_distance)   # feed recovery trend detector
         is_success = float(info.get("is_success", 0.0))
-        safety_violation_step = float(np.linalg.norm(executed_action) > SAFETY_ACTION_NORM_THRESHOLD)
 
         step_logs.append({
             "method": method,
@@ -236,7 +249,7 @@ def run_episode(
         seed=seed,
         attack_level=float(attack_level),
         total_reward=float(total_reward),
-        success=float(step_df["is_success"].max() if len(step_df) else 0.0),
+        success=float(step_df["is_success"].iloc[-1] if len(step_df) else 0.0),
         final_distance=float(step_df["distance_to_goal"].iloc[-1] if len(step_df) else float("nan")),
         episode_length=int(len(step_df)),
         action_smoothness=_action_smoothness(actions),

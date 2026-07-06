@@ -106,6 +106,11 @@ def main() -> None:
 
     # Build summary per benchmark layer so trustworthiness scores are computed
     # within-layer (each layer has its own normalisation context).
+    # B1 is pre-computed first and passed as the C5 no-recovery baseline to
+    # B2 and B3, which lack sac_her rows of their own.
+    b1_df = df[df["benchmark_layer"] == "B1"]
+    b1_baseline = summarize_results(b1_df) if not b1_df.empty else None
+
     summary_parts = []
     for layer in BENCHMARK_LAYERS:
         layer_df = df[df["benchmark_layer"] == layer]
@@ -113,7 +118,10 @@ def main() -> None:
             print(f"[table] WARNING: no data for layer {layer}, skipping.")
             continue
         summary = summarize_results(layer_df)
-        summary = add_trustworthiness_scores(summary)
+        # B2/B3 need the B1 sac_her baseline for the C5 recovery_score formula.
+        # B0/B1 contain sac_her rows themselves so no external baseline is needed.
+        baseline = b1_baseline if layer in {"B2", "B3"} else None
+        summary = add_trustworthiness_scores(summary, baseline_summary=baseline)
         summary.insert(0, "benchmark_layer", layer)
         summary_parts.append(summary)
 

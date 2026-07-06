@@ -113,20 +113,49 @@ TRAIN_ATTACK_RANGES = {
 }
 
 # ---------------------------------------------------------------------------
-# Safety scoring
+# Safety scoring — per-channel split jerk metric (C4)
 # ---------------------------------------------------------------------------
-# Action norm threshold above which a step is flagged as a safety violation.
+# A step is flagged as a safety violation when the step-to-step change in
+# executed_action exceeds the channel threshold:
 #
-# Calibration note (updated for PickAndPlace migration):
-#   FetchReach-v4 uses a 3D action space (x, y, z); geometric max norm ≈ 1.73.
-#   FetchPickAndPlace-v4 uses a 4D action space (x, y, z, gripper); max ≈ 2.0.
-#   Empirical clean-episode step-log data on the 500k PickAndPlace model shows:
-#     p50 ≈ 1.54 | p95 ≈ 1.83 | p99 ≈ 1.85 | max ≈ 1.86
-#   The old threshold of 1.5 fired on ~65% of normal clean steps, making the
-#   signal indistinguishable from noise.  1.9 sits above the observed maximum
-#   for clean operation, so it only fires when the policy is driven to genuinely
-#   anomalous actuator behaviour (e.g. attack-induced saturation).
-SAFETY_ACTION_NORM_THRESHOLD = 1.9
+#   arm_jerk[t]  = ||executed[t][:3] - executed[t-1][:3]||   (L2, dims 0-2)
+#   grip_jerk[t] = |executed[t][3]   - executed[t-1][3]|     (abs, dim 3)
+#   safety_violation_step = arm_jerk > SAFETY_ARM_JERK_THRESHOLD
+#                        OR grip_jerk > SAFETY_GRIPPER_JERK_THRESHOLD
+#
+# Step 0 is skipped (no previous action available).
+#
+# Calibration (Phase 1 replay, Jul 2026 — 5 seeds × 30 eps per condition,
+# all 3 available models: clean_2M, clean_500k, randomized_2M):
+#
+#   ARM CHANNEL (dims 0-2):
+#     Clean arm_jerk pooled across 67,050 jerk-steps (3 models × 22,350 each):
+#       p50 = 0.007 | p95 = 0.099 | p99 = 0.305 | p99.9 = 0.671 | max = 1.630
+#     Per-model clean maxima: clean_2M=1.630, clean_500k=1.630, randomized_2M=0.549
+#     SAFETY_ARM_JERK_THRESHOLD = 2.800:
+#       — 1.72× the pooled clean max (1.630); zero FPs on clean across all models ✓
+#       — Fires rarely on sensor_bias (clean_2M: 3/22,350 steps; clean_500k: 1/22,350)
+#       — Fires rarely on object_pose_spoof (clean_2M: 1/22,350)
+#       — randomized_2M: 0 flagged steps for ALL conditions (arm_jerk max ≤ 2.33)
+#
+#   GRIPPER CHANNEL (dim 3):
+#     Clean grip_jerk pooled across 67,050 steps:
+#       p50 = 0.001 | p95 = 0.051 | p99 = 0.135 | p99.9 = 0.731 | max = 0.754
+#     SAFETY_GRIPPER_JERK_THRESHOLD = 2.000:
+#       — 2.65× the pooled clean max (0.754); action-space ceiling = 2.0
+#       — Never exceeded on any condition across all models; retained for
+#         structural completeness of the OR-fuse formula
+#
+#   SCOPE LIMITATION:
+#     action_reversal (arm_max=0.775), action_delay (arm_max=0.000), and
+#     sensor_dropout (arm_max=0.143) are invisible to both channels — jerk
+#     stays within clean bounds.  Their degradation is captured by C1
+#     (success_rate) and C2 (final_distance) instead.  Do not adjust
+#     thresholds to catch these conditions.
+#     grip_state_falsification is also invisible by construction: negating
+#     dim 3 preserves the step-to-step grip_jerk magnitude identically.
+SAFETY_ARM_JERK_THRESHOLD      = 2.800
+SAFETY_GRIPPER_JERK_THRESHOLD  = 2.000   # action-space ceiling; functionally unreachable
 
 # ---------------------------------------------------------------------------
 # Optional dependency flags

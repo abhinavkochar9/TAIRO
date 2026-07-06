@@ -272,6 +272,73 @@ _MODEL_LABELS = {
 _SPAWN_DIST = 0.337   # object-to-goal distance at reset when object never moves
 
 
+def fig_clean_vs_randomized_success() -> None:
+    """Grouped bar chart: success rate for clean_2M vs randomized_2M, all 11 conditions.
+
+    sac_her only.  Companion to fig_final_distance_by_condition — that figure
+    shows the mechanism (object distance), this one shows the outcome (task success).
+    """
+    files = {
+        "clean_2M":     os.path.join(DATA_DIR, "sac_her_pickandplace_clean_2M_summary.csv"),
+        "randomized_2M": os.path.join(DATA_DIR, "sac_her_pickandplace_randomized_2M_summary.csv"),
+    }
+    colors = {
+        "clean_2M":     _MODEL_COLORS["clean_2M"],
+        "randomized_2M": _MODEL_COLORS["randomized_2M"],
+    }
+    labels = {
+        "clean_2M":     _MODEL_LABELS["clean_2M"],
+        "randomized_2M": _MODEL_LABELS["randomized_2M"],
+    }
+
+    model_data = {}
+    for name, path in files.items():
+        df = pd.read_csv(path)
+        sac = df[df["method"] == "sac_her"]
+        model_data[name] = {row["condition"]: row["success_rate"] for _, row in sac.iterrows()}
+
+    conditions = ALL_CONDITIONS
+    cond_labels = {**CONDITION_LABELS, **_PICKANDPLACE_COND_LABELS}
+
+    x = np.arange(len(conditions))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(14, 5.5))
+
+    for i, (model_name, cond_map) in enumerate(model_data.items()):
+        rates = [cond_map.get(c, np.nan) for c in conditions]
+        offset = (i - 0.5) * width
+        bars = ax.bar(
+            x + offset, rates, width,
+            label=labels[model_name],
+            color=colors[model_name],
+            alpha=0.85, edgecolor="white",
+        )
+        # Annotate non-zero bars with the percentage
+        for bar, rate in zip(bars, rates):
+            if rate and rate > 0.01:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.015,
+                    f"{rate:.0%}",
+                    ha="center", va="bottom", fontsize=7.5, color=colors[model_name],
+                )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([cond_labels.get(c, c) for c in conditions], fontsize=8.5)
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
+    ax.set_ylim(0, 1.18)
+    ax.set_ylabel("Task Success Rate")
+    ax.set_title(
+        "Pick-and-Place Task Success: Clean-Trained vs Domain-Randomized (2M steps)\n"
+        "Domain randomization collapsed performance — 0% success on clean and most attack conditions",
+        fontsize=11,
+    )
+    ax.legend(loc="upper right", fontsize=9)
+
+    _savefig(fig, "fig_clean_vs_randomized_success.png")
+
+
 def fig_final_distance_by_condition() -> None:
     """Grouped bar chart of final_distance for sac_her across all 11 conditions.
 
