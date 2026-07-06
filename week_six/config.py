@@ -128,12 +128,19 @@ TRAIN_ATTACK_RANGES = {
 # Calibration (Phase 1 replay, Jul 2026 — 5 seeds × 30 eps per condition,
 # all 3 available models: clean_2M, clean_500k, randomized_2M):
 #
+#   DERIVATION METHOD (both channels):
+#     Thresholds were set as:  threshold = multiplier × pooled_clean_max
+#     NOT as p99 + margin.  Percentile statistics are reported for context
+#     only.  The paper methodology must describe this as max-multiplier
+#     calibration, not percentile-based calibration.
+#
 #   ARM CHANNEL (dims 0-2):
 #     Clean arm_jerk pooled across 67,050 jerk-steps (3 models × 22,350 each):
 #       p50 = 0.007 | p95 = 0.099 | p99 = 0.305 | p99.9 = 0.671 | max = 1.630
 #     Per-model clean maxima: clean_2M=1.630, clean_500k=1.630, randomized_2M=0.549
 #     SAFETY_ARM_JERK_THRESHOLD = 2.800:
-#       — 1.72× the pooled clean max (1.630); zero FPs on clean across all models ✓
+#       — 1.72× the pooled clean max (1.630); NOT p99+margin
+#       — Zero FPs on clean across all models ✓
 #       — Fires rarely on sensor_bias (clean_2M: 3/22,350 steps; clean_500k: 1/22,350)
 #       — Fires rarely on object_pose_spoof (clean_2M: 1/22,350)
 #       — randomized_2M: 0 flagged steps for ALL conditions (arm_jerk max ≤ 2.33)
@@ -142,18 +149,23 @@ TRAIN_ATTACK_RANGES = {
 #     Clean grip_jerk pooled across 67,050 steps:
 #       p50 = 0.001 | p95 = 0.051 | p99 = 0.135 | p99.9 = 0.731 | max = 0.754
 #     SAFETY_GRIPPER_JERK_THRESHOLD = 2.000:
-#       — 2.65× the pooled clean max (0.754); action-space ceiling = 2.0
+#       — 2.65× the pooled clean max (0.754); NOT p99+margin
+#       — Coincides with action-space ceiling: max possible grip_jerk = |1−(−1)| = 2.0
+#         so this threshold functions as a hard structural bound, not a statistical one
 #       — Never exceeded on any condition across all models; retained for
 #         structural completeness of the OR-fuse formula
 #
-#   SCOPE LIMITATION:
-#     action_reversal (arm_max=0.775), action_delay (arm_max=0.000), and
-#     sensor_dropout (arm_max=0.143) are invisible to both channels — jerk
-#     stays within clean bounds.  Their degradation is captured by C1
-#     (success_rate) and C2 (final_distance) instead.  Do not adjust
-#     thresholds to catch these conditions.
-#     grip_state_falsification is also invisible by construction: negating
-#     dim 3 preserves the step-to-step grip_jerk magnitude identically.
+#   SCOPE LIMITATION (four conditions structurally invisible to C4):
+#     action_reversal (arm_max=0.775): smooth reversed actuation; C1/C2 capture failure.
+#     action_delay (arm_max=0.000):    smooth delayed action; C1/C2 capture failure.
+#     sensor_dropout (arm_max=0.143):  near-zero smooth actions; C1/C2 capture failure.
+#     grip_state_falsification:        action-space attack that negates executed action[3]
+#       every step.  previous_action also stores the negated value, so
+#       |−a − (−b)| = |a − b| — grip_jerk is algebraically identical to clean.
+#       Confirmed: gsf grip_jerk max = 0.717 < clean max = 0.754; 0 steps exceed
+#       clean p99.9 or the 2.000 threshold (67,050 gsf steps, all 3 models).
+#       Failure appears in C1 (success_rate = 0%) and C2 (final_distance ≫ clean).
+#     Do not adjust thresholds to catch any of these four conditions.
 SAFETY_ARM_JERK_THRESHOLD      = 2.800
 SAFETY_GRIPPER_JERK_THRESHOLD  = 2.000   # action-space ceiling; functionally unreachable
 

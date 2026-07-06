@@ -138,7 +138,8 @@ def run_episode(
     total_reward = 0.0
     actions: List[np.ndarray] = []
     step_logs: List[Dict] = []
-    previous_action: Optional[np.ndarray] = None
+    previous_action: Optional[np.ndarray] = None   # delay buffer for action_delay
+    prev_executed: Optional[np.ndarray] = None     # C4 jerk comparand — always last executed
     previous_obs: Optional[Dict] = None
     step_distances: List[float] = []
     any_recovery = False
@@ -192,12 +193,16 @@ def run_episode(
                     first_recovery_step = float(t)
 
         # -- Per-channel split jerk metric for C4 safety scoring -----------------
-        # Computed here, before previous_action is updated, so previous_action
-        # still holds the prior step's executed action.
-        # Step 0: previous_action is None → skip (no jerk defined, no violation).
-        if previous_action is not None:
-            _arm_jerk  = float(np.linalg.norm(executed_action[:3] - previous_action[:3]))
-            _grip_jerk = float(abs(executed_action[3] - previous_action[3]))
+        # Always compare consecutive *executed* actions — the actual command stream
+        # sent to the robot regardless of which component (base policy, delay buffer,
+        # or recovery controller) produced it.  prev_executed tracks this exclusively.
+        #
+        # NOTE: previous_action serves a separate purpose (action_delay buffer) and
+        # intentionally stores intended_action for that condition; do NOT use it here.
+        # Step 0: prev_executed is None → skip (no prior executed action available).
+        if prev_executed is not None:
+            _arm_jerk  = float(np.linalg.norm(executed_action[:3] - prev_executed[:3]))
+            _grip_jerk = float(abs(executed_action[3] - prev_executed[3]))
             safety_violation_step = float(
                 _arm_jerk  > SAFETY_ARM_JERK_THRESHOLD or
                 _grip_jerk > SAFETY_GRIPPER_JERK_THRESHOLD
@@ -206,9 +211,10 @@ def run_episode(
             safety_violation_step = 0.0
 
         previous_obs = obs
+        prev_executed = executed_action.copy()   # always the last executed action
         # For action_delay, store the policy's intended action so the next step
         # replays it as a genuine 1-step lag. Storing executed_action would
-        # perpetuate zeros forever (the confirmed bug).
+        # perpetuate zeros forever (the confirmed bug from Week 5).
         previous_action = (
             intended_action.copy() if condition == "action_delay" else executed_action.copy()
         )
