@@ -45,6 +45,59 @@ from policies.rule_based_policy import rule_based_reach_policy
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _pnp_spatial_fields(
+    obs: Dict[str, np.ndarray],
+    goal_offset: Optional[np.ndarray],
+) -> Dict:
+    """Extract ground-truth spatial fields from a PickAndPlace obs dict.
+
+    Returns NaN-filled entries for FetchReach (10-dim obs), so the step log
+    schema is uniform across both environments.
+    """
+    obs_vec = obs["observation"]
+    if len(obs_vec) >= 25:
+        gripper_pos  = obs_vec[0:3]
+        object_pos   = obs_vec[3:6]
+        object_velp  = obs_vec[14:17]
+        grip_velp    = obs_vec[20:23]
+        gripper_aper = float(np.sum(obs_vec[9:11]))
+        true_goal    = np.asarray(obs["desired_goal"], dtype=np.float64)
+        perc_goal    = true_goal + goal_offset if goal_offset is not None else true_goal
+        dist_to_obj  = float(np.linalg.norm(gripper_pos - object_pos))
+        dist_to_tg   = float(np.linalg.norm(object_pos  - true_goal))
+        dist_to_pg   = float(np.linalg.norm(object_pos  - perc_goal))
+    else:
+        gripper_pos  = object_pos  = object_velp = grip_velp = np.full(3, np.nan)
+        gripper_aper = np.nan
+        true_goal    = perc_goal   = np.full(3, np.nan)
+        dist_to_obj  = dist_to_tg  = dist_to_pg = np.nan
+
+    return {
+        "object_pos_x": float(object_pos[0]),
+        "object_pos_y": float(object_pos[1]),
+        "object_pos_z": float(object_pos[2]),
+        "gripper_pos_x": float(gripper_pos[0]),
+        "gripper_pos_y": float(gripper_pos[1]),
+        "gripper_pos_z": float(gripper_pos[2]),
+        "gripper_aperture": gripper_aper,
+        "object_velp_x": float(object_velp[0]),
+        "object_velp_y": float(object_velp[1]),
+        "object_velp_z": float(object_velp[2]),
+        "grip_velp_x": float(grip_velp[0]),
+        "grip_velp_y": float(grip_velp[1]),
+        "grip_velp_z": float(grip_velp[2]),
+        "true_goal_x": float(true_goal[0]),
+        "true_goal_y": float(true_goal[1]),
+        "true_goal_z": float(true_goal[2]),
+        "perceived_goal_x": float(perc_goal[0]),
+        "perceived_goal_y": float(perc_goal[1]),
+        "perceived_goal_z": float(perc_goal[2]),
+        "distance_to_object": dist_to_obj,
+        "distance_to_true_goal": dist_to_tg,
+        "distance_to_perceived_goal": dist_to_pg,
+    }
+
+
 def _action_smoothness(actions: List[np.ndarray]) -> float:
     """Mean step-to-step action-difference norm. Lower = smoother control."""
     if len(actions) < 2:
@@ -79,6 +132,7 @@ class EpisodeResult:
     action_magnitude: float
     safety_violation: float  # 1.0 if any step exceeded action norm threshold
     recovery_used: float     # 1.0 if recovery was triggered at any step
+    first_success_step: float = float("nan")  # first timestep where is_success=1.0, else NaN
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +198,7 @@ def run_episode(
     step_distances: List[float] = []
     any_recovery = False
     first_recovery_step: float = float("nan")
+    first_success_step: float = float("nan")
 
     # Per-episode constants sampled once for attacks that require a fixed offset.
     # object_pose_offset is only used by PickAndPlace object_pose_spoof; None here.
@@ -228,6 +283,11 @@ def run_episode(
         step_distances.append(current_distance)   # feed recovery trend detector
         is_success = float(info.get("is_success", 0.0))
 
+        if is_success == 1.0 and np.isnan(first_success_step):
+            first_success_step = float(t)
+
+        spatial = _pnp_spatial_fields(obs, goal_offset)
+
         step_logs.append({
             "method": method,
             "condition": condition,
@@ -241,6 +301,7 @@ def run_episode(
             "intended_action_norm": float(np.linalg.norm(intended_action)),
             "safety_violation": safety_violation_step,
             "recovery_triggered": float(recovery_triggered),
+            **spatial,
         })
 
         if terminated or truncated:
@@ -262,6 +323,7 @@ def run_episode(
         action_magnitude=_action_magnitude(actions),
         safety_violation=float(step_df["safety_violation"].max() if len(step_df) else 0.0),
         recovery_used=float(any_recovery),
+        first_success_step=first_success_step,
     )
 
     return result, step_df

@@ -21,3 +21,8 @@ __pycache__/
 # Results (data and models are large; TensorBoard logs excluded per d6360f9)
 results/tensorboard/
 results/tb_logs/
+
+
+update_paper.md
+todo.md
+c4_paper_changelog.md

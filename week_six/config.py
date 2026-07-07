@@ -170,6 +170,34 @@ SAFETY_ARM_JERK_THRESHOLD      = 2.800
 SAFETY_GRIPPER_JERK_THRESHOLD  = 2.000   # action-space ceiling; functionally unreachable
 
 # ---------------------------------------------------------------------------
+# Failure-mode labeling thresholds (Phase 3)
+# Used exclusively by evaluation/failure_mode_labeling.py.
+# ---------------------------------------------------------------------------
+
+# Reach: gripper must get this close to the object to count as "reached"
+REACH_THRESHOLD            = 0.06    # m
+
+# Grasp — kinematic criteria (distance + velocity co-movement), sustained:
+GRASP_DIST_THRESHOLD       = 0.05    # m   — max distance_to_object for "in contact"
+GRASP_TRACKING_THRESHOLD   = 0.10    # m/s — max L2(object_velp - grip_velp) for co-moving
+GRASP_WINDOW               = 5       # consecutive steps meeting both kinematic criteria
+
+# Grasp — lift confirmation: object must rise in Z after the kinematic window
+# (distinguishes a real grasp from dragging the object along the table surface)
+GRASP_LIFT_THRESHOLD       = 0.01    # m   — minimum rise in object_pos_z after grasp onset
+GRASP_LIFT_WINDOW          = 20      # steps after grasp onset in which the lift must occur
+
+# Drop: distance_to_object must exceed this after grasp (before any success) to call "dropped"
+DROP_SEPARATION_THRESHOLD  = 0.10    # m
+
+# Spoofed-goal detector: object converged near perceived goal while staying far from true goal
+SPOOFED_GOAL_PERCEIVED_MAX = 0.05    # m — max dist_to_perceived_goal for "converged to spoofed"
+SPOOFED_GOAL_TRUE_MIN      = 0.05    # m — min dist_to_true_goal for "not at true goal"
+
+# Wrong-direction trend: linear regression window over final N steps
+WRONG_DIR_WINDOW           = 50      # steps
+
+# ---------------------------------------------------------------------------
 # Optional dependency flags
 # ---------------------------------------------------------------------------
 try:
