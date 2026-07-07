@@ -1,0 +1,23 @@
+# Planning / tracking docs (local only)
+update_paper.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Conda / virtualenv
+.env
+.venv
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Results (data and models are large; TensorBoard logs excluded per d6360f9)
+results/tensorboard/
+results/tb_logs/
