@@ -191,7 +191,7 @@ GRASP_LIFT_WINDOW          = 20      # steps after grasp onset in which the lift
 DROP_SEPARATION_THRESHOLD  = 0.10    # m
 
 # Spoofed-goal detector: object converged near perceived goal while staying far from true goal
-SPOOFED_GOAL_PERCEIVED_MAX = 0.05    # m — max dist_to_perceived_goal for "converged to spoofed"
+SPOOFED_GOAL_PERCEIVED_MAX = 0.08    # m — max dist_to_perceived_goal for "converged to spoofed"
 SPOOFED_GOAL_TRUE_MIN      = 0.05    # m — min dist_to_true_goal for "not at true goal"
 
 # Wrong-direction trend: linear regression window over final N steps

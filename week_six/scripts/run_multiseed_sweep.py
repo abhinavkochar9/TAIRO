@@ -138,6 +138,19 @@ def _parse_args():
             "Example: --n-episodes 2"
         ),
     )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        nargs="+",
+        default=None,
+        metavar="METHOD",
+        choices=["sac_her", "sac_her_recovery_v2", "sac_her_recovery_v3"],
+        help=(
+            "Methods to evaluate (space-separated). "
+            "Default: all ALL_METHODS from config.py. "
+            "Example: --methods sac_her"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -180,6 +193,7 @@ def main() -> None:
 
     seeds       = args.seeds      if args.seeds      is not None else RANDOM_SEEDS
     n_episodes  = args.n_episodes if args.n_episodes is not None else N_EPISODES_PER_SEED
+    methods     = args.methods    if args.methods    is not None else ALL_METHODS
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -192,7 +206,7 @@ def main() -> None:
         from stable_baselines3 import SAC
         print(f"[sweep] env={env_tag}  max_steps={max_steps}  model={model_path}")
         print(f"[sweep] seeds={seeds}  n_episodes={n_episodes}  "
-              f"conditions={len(ALL_CONDITIONS)}  methods={len(ALL_METHODS)}")
+              f"conditions={len(ALL_CONDITIONS)}  methods={len(methods)}")
         model = SAC.load(model_path, env=_tmp_env)
     else:
         print("[sweep] WARNING: SB3 not available — sac_her runs will be skipped.")
@@ -212,7 +226,7 @@ def main() -> None:
         for condition in ALL_CONDITIONS:
             attack_level = ATTACK_LEVELS[condition]
 
-            for method in ALL_METHODS:
+            for method in methods:
                 if model is None:
                     continue
 
