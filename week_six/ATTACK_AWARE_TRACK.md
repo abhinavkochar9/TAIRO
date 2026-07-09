@@ -273,6 +273,135 @@ existing config.py constants — add new constants, don't repurpose old ones. Wr
 logs matching the existing convention (§12). Launch training on the separate branch. Report back
 when complete; do not proceed to eval/sweep without explicit go-ahead.
 
+### Step 2 implementation log (2026-07-08)
+
+**Status: first checkpoint (seed=0) complete and reviewed — NEGATIVE RESULT. Retry launched
+with a different seed (§ "Seed=0 run — results" below), same design, same 2,000,000-step budget.
+Not yet resolved whether this reflects the architecture or single-seed variance.**
+
+New files (none of the existing FetchReach/PickAndPlace pipeline files were modified):
+- `training/attack_aware_wrapper.py` — `AttackAwareWrapper(gym.Wrapper)`. Structurally mirrors
+  `training/attack_randomization_wrapper.py` (same per-episode condition/magnitude sampling from
+  `TRAIN_ATTACK_RANGES`, same `apply_sensor_attack`/`apply_action_attack` dispatch calls), plus:
+  derives `current_category` from `current_condition` via `ATTACK_CATEGORY_MAP`, one-hot encodes
+  it (4-dim), and appends it to `obs["observation"]` every step (both `reset()` and `step()`).
+  Overrides `observation_space` so the `"observation"` Box grows from `(25,)` to `(29,)`;
+  `achieved_goal`/`desired_goal` Boxes are left untouched, matching the §4b injection-point
+  confirmation.
+- `scripts/train_attack_aware_pickandplace.py` — new training entrypoint, does not touch
+  `training/train_sac_her.py`. Mirrors that file's `--resume` logic exactly (`SAC.load()` +
+  `model.load_replay_buffer()` + `reset_num_timesteps=False`, replay buffer persisted via
+  `model.save_replay_buffer()`), same SAC/HerReplayBuffer hyperparameters as the existing
+  PickAndPlace models (`learning_starts=300`, `buffer_size=1_000_000`, `n_sampled_goal=4`,
+  `goal_selection_strategy="future"`) for a fair comparison against `clean_2M` /
+  `randomized_p50_2M`.
+
+New `config.py` constants (appended, nothing existing repurposed): `ATTACK_CATEGORIES`,
+`ATTACK_CATEGORY_FLAG_DIM`, `ATTACK_CATEGORY_MAP`, `ATTACK_AWARE_P_CLEAN` (0.5),
+`ATTACK_AWARE_TIMESTEPS_CHECKPOINT_1` (2,000,000), `MODEL_PATH_PICKANDPLACE_ATTACKAWARE`.
+
+**Wrapper correctness — verified directly, not assumed:** 30 episodes × 5 steps sampled all four
+categories; `obs["observation"].shape == (29,)` on every step; the one-hot flag sums to 1 and is
+stable within an episode (never changes mid-episode); `current_category` matches
+`ATTACK_CATEGORY_MAP[current_condition]` on every reset.
+
+**Resumability — confirmed working, not assumed,** via a throwaway smoke test (scratch save path,
+900 steps → save+save_replay_buffer → `--resume` → +1500 steps → no crash, cumulative
+`total_timesteps` reached 2400 as expected). One nuance surfaced and documented in the script's
+`--resume` help text: SB3's `model.learn(reset_num_timesteps=False)` does
+`total_timesteps += self.num_timesteps` internally (confirmed by reading
+`stable_baselines3.common.base_class.BaseAlgorithm._setup_learn` source, SB3 2.8.0) — so
+`--total-timesteps` on a resumed run is the number of *additional* steps, not an absolute target.
+Not an issue for this checkpoint (fresh run, counter starts at 0), but will matter for whoever
+extends training past 2,000,000 later.
+
+**Training launch:** `scripts/train_attack_aware_pickandplace.py --total-timesteps 2000000
+--seed 0 --p-clean 0.5`, running in a detached `tmux` session (`attackaware_train`, at the user's
+request, in place of the harness's own backgrounding) so it survives independent of any one
+conversation turn. Logging to `results/data/train_log_attackaware_3cat_2M.txt` and
+`results/tensorboard/sac_her_pickandplace_attackaware_3cat_4/`. Expected wall-clock ≈4.9 hr per
+the §4e throughput table. Model will save to `results/models/sac_her_pickandplace_attackaware_3cat`
+on completion — no existing model at that path was touched.
+
+### Seed=0 run — results (2026-07-08, negative result)
+
+Model saved to `results/models/sac_her_pickandplace_attackaware_3cat` (seed=0, `p_clean=0.5`,
+2,000,000 steps). **Preserved as-is, not overwritten by the seed=1 retry below** — kept as a
+documented negative result, same convention as the `p_clean=0.2` result in §3.
+
+**Success-rate curve** (from `results/data/train_log_attackaware_3cat_2M.txt`), compared to the
+`randomized_p50_2M` reference (§4d, same `p_clean=0.5`, same 2M steps, no category flag):
+
+| Timesteps | This run (attack-aware, seed=0) | Reference (`randomized_p50_2M`) |
+|---|---|---|
+| ~500k | 0.05 | 0.07 |
+| ~1.0M | 0.03 | 0.01 |
+| ~1.5M | 0.04 | ~0.12 (climbing) |
+| ~1.8M | 0.05 | 0.28 |
+| ~2.0M (final) | **0.03** | **0.33–0.38** |
+
+Unlike the reference run, this run **never showed the late-stage ramp** — it stayed flat/noisy in
+the 1–9% band for the entire 2,000,000 steps, including the exact 1.4M–2M window where the
+reference run climbed from ~9% to ~33–38%.
+
+**Diagnostic eval of the saved model** (read-only, no retraining — 30 forced-clean episodes +
+60 forced-attacked episodes broken down by category):
+
+| Condition | n | success rate |
+|---|---|---|
+| Forced clean (flag correctly = "clean") | 30 | **0%** |
+| Forced non-clean: sensor | 24 | 4.2% |
+| Forced non-clean: goal | 14 | 7.1% |
+| Forced non-clean: action | 22 | 0% |
+
+**Root cause confirmed, not guessed:** checked actual trajectories — `distance_to_goal` at
+episode end ≈ `distance_to_goal` at episode start in nearly every episode (mean 0.241m → 0.242m
+across 15 clean episodes). The object never moves. This is the identical "pinned at spawn
+distance" collapse signature already documented in CLAUDE.md §1/§5 for `clean_500k`,
+`randomized_500k`, and `randomized_2M` (3 of the 4 pre-existing PickAndPlace models).
+
+**Ruled out before concluding "single-seed collapse":**
+- Wrapper/code bug — pre-launch checks already confirmed correct `(29,)` obs shape, stable
+  one-hot flag, all 4 categories sampled correctly (§ "Wrapper correctness" above).
+- Exploration/entropy schedule difference — `ent_coef` decay curve for the first 40 log blocks is
+  virtually identical, value-for-value, to the reference run's decay curve. Both collapse to
+  ~0.0005–0.002 by the same point in training. Not a distinguishing factor.
+- Crash or numerical failure — no errors, warnings, or NaN/Inf anywhere in the 53,334-line log.
+
+**Interpretation (not yet conclusive — single seed):** the failure is uniform across clean *and*
+all three attack categories, not concentrated on non-clean conditions — so this does not look like
+evidence against the ground-truth-flag architecture specifically. It looks like this seed landed
+in the same "object never moves" collapse basin that 3 of 4 pre-existing PickAndPlace models
+(including `clean_500k`, trained with zero attack exposure) already fall into in this repo. The
+`randomized_p50_2M` reference run that reached 33–38% looks like the outlier that got a favorable
+random init/exploration trajectory, not the expected norm. §4d's hypothesis that the attack-aware
+architecture "should need the same or less clean signal than blind randomization" is **not
+supported or refuted by this single run** — the base task itself failed here, independent of the
+flag or category.
+
+**Decision: retry with a new seed rather than resume this checkpoint.** Resuming was considered
+and rejected: the entropy coefficient had already auto-tuned to near-zero early in training (SAC's
+exploration is effectively exhausted), and with `distance_to_goal` static across the episode,
+`achieved_goal` barely varies — so HER's `future` relabeling has little diverse hindsight signal
+to exploit. There is also no positive trend anywhere in the curve to suggest more steps would
+help, unlike the reference run which was still visibly climbing right up to 2M. A fresh seed gives
+a genuinely new random init and exploration trajectory — the same mechanism that let the reference
+run succeed.
+
+**Wall-clock note (unresolved, unrelated to the accuracy question):** this run took **25,087s
+(~6.97 hr)**, notably longer than the reference run's 17,669s (~4.9 hr) and the §4e throughput
+table's estimate, with final fps 79 vs. the reference's 113–125. Not yet explained — the wrapper's
+per-step overhead (one numpy concatenation + one-hot lookup) is not expected to account for a ~42%
+slowdown. Flagged for awareness, not yet investigated.
+
+### Seed=1 retry — launched (2026-07-08)
+
+Same design, same `p_clean=0.5`, same `total_timesteps=2,000,000` budget (kept at 2M rather than
+padding upward — the one successful precedent needed only 2M steps, and the checkpoint/resume
+design exists precisely so the budget can be extended later based on real evidence rather than a
+guess made now). Saved to a **distinct path** so the seed=0 negative result above is not
+overwritten: `results/models/sac_her_pickandplace_attackaware_3cat_seed1`.
+
 ### Step 3 — Deployment classifier dataset (can run in parallel with Step 2)
 
 Build the training dataset for the deployment-time attack classifier: input = observation

@@ -88,6 +88,10 @@ MODEL_PATH = f"{MODELS_DIR}/sac_her_fetchreach_model"
 MODEL_PATH_PICKANDPLACE            = f"{MODELS_DIR}/sac_her_pickandplace_clean"
 MODEL_PATH_PICKANDPLACE_RANDOMIZED = f"{MODELS_DIR}/sac_her_pickandplace_randomized"
 
+# Attack-aware policy model path (ATTACK_AWARE_TRACK.md) — new track, does
+# not overwrite or replace the clean/randomized models above.
+MODEL_PATH_PICKANDPLACE_ATTACKAWARE = f"{MODELS_DIR}/sac_her_pickandplace_attackaware_3cat"
+
 # ---------------------------------------------------------------------------
 # Phase 3: Attack-domain-randomization training ranges
 #
@@ -196,6 +200,46 @@ SPOOFED_GOAL_TRUE_MIN      = 0.05    # m — min dist_to_true_goal for "not at t
 
 # Wrong-direction trend: linear regression window over final N steps
 WRONG_DIR_WINDOW           = 50      # steps
+
+# ---------------------------------------------------------------------------
+# Attack-aware policy track (ATTACK_AWARE_TRACK.md, Step 1 design decisions).
+# Separate from the Phase 8/9 failure-mode classifier constants above — do
+# not conflate. Full reasoning for each value lives in ATTACK_AWARE_TRACK.md
+# §4; do not duplicate that reasoning here.
+# ---------------------------------------------------------------------------
+
+# 3-category scheme per Dr. Ho's proposal (§4a): every one of the 11
+# conditions maps to exactly one of these by "which channel is corrupted"
+# (action stream / observation-sensor stream / goal stream). "clean" is its
+# own explicit category, not an implicit all-zero default (§4c).
+ATTACK_CATEGORIES = ["clean", "action", "sensor", "goal"]
+ATTACK_CATEGORY_FLAG_DIM = len(ATTACK_CATEGORIES)   # 4, one-hot
+
+ATTACK_CATEGORY_MAP = {
+    "clean":                     "clean",
+    "sensor_dropout":            "sensor",
+    "sensor_bias":               "sensor",
+    "action_clipping":           "action",
+    "action_delay":              "action",
+    "action_reversal":           "action",
+    "goal_spoof_immediate":      "goal",
+    "goal_spoof_midep":          "goal",
+    "object_pose_spoof":         "sensor",
+    "grip_state_falsification":  "action",
+    "contact_dropout":           "sensor",
+}
+
+# p_clean anchored on the existing (previously undocumented)
+# sac_her_pickandplace_randomized_p50_2M run, whose non-flat success-rate
+# curve is the only direct evidence in this repo that a p_clean value clears
+# the flat-failure regime seen at p_clean=0.2 (§3, §4d).
+ATTACK_AWARE_P_CLEAN = 0.5
+
+# First checkpoint, not a final answer (§4e). Measured throughput on this
+# hardware plus the reference run's success-rate curve (flat through ~1.2M-
+# 1.4M steps) both argue against stopping earlier at "couple hours" (~1M).
+# Extending past this checkpoint is an explicit human decision point.
+ATTACK_AWARE_TIMESTEPS_CHECKPOINT_1 = 2_000_000
 
 # ---------------------------------------------------------------------------
 # Optional dependency flags
