@@ -27,3 +27,5 @@ update_paper.md
 todo.md
 c4_paper_changelog.md
 findings.md
+ATTACK_AWARE_TRACK.md
+results/data/train_log_attackaware_3cat_2M_seed1.txt
