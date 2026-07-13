@@ -450,6 +450,142 @@ being complete.
 
 ---
 
+## 7. Single-Attack Binary-Flag Track (Dr. Ho, 2026-07-12)
+
+**Status:** Training launched (2026-07-12), 3 runs in progress — no results yet.
+**Branch:** `attack-aware-single-flag`, cut from `attack-aware-policy` at commit `7e9eb37`
+(the commit *before* `3856157`, which only untracks this file locally via gitignore — basing off
+`7e9eb37` keeps `ATTACK_AWARE_TRACK.md` tracked/editable on this branch).
+**Relationship to §1–§6 above:** A separate, independent diagnostic ablation — **not** a
+continuation or replacement of the 3-category one-hot track. Do not conflate the two: different
+flag shape, different sampling scheme, different config constants, different model paths.
+
+### 7.1 Background
+
+Experiment 1 from Dr. Ho's 2026-07-12 email: single-attack policies with a binary (0/1) flag, to
+test learnability per attack and whether the policy conditions on the flag at all — a smaller,
+cheaper probe intended to be resolved *before* trusting a negative result on the harder
+3-category mixture (§3, §5 seed=0/seed=1 above, both negative at `p_clean=0.5`). If the policy
+can't learn to condition on a flag for a single, simple attack signal, that's informative on its
+own; if it can, the 3-category negative result becomes more interesting rather than just
+"attack-awareness doesn't work here."
+
+### 7.2 Design decisions (Phase 1 diagnostic, read-only, resolved before any file was written)
+
+1. **Reuse vs. new wrapper — new file, not subclass.** `training/attack_randomization_wrapper.py`
+   and `training/attack_aware_wrapper.py` already coexist as parallel files sharing the same
+   `apply_sensor_attack`/`apply_action_attack` dispatch calls rather than one subclassing the
+   other — followed that precedent. `training/single_attack_wrapper.py` mirrors
+   `attack_aware_wrapper.py`'s `step()`/`_apply_sensor()` dispatch and the `action_delay`
+   `previous_action` bookkeeping invariant verbatim; the two wrappers differ in episode sampling
+   (fixed single condition vs. draw from all non-clean conditions), flag encoding (scalar vs.
+   one-hot), and `observation_space` construction (`flag_dim=1` vs. `4`) — enough surface area
+   that subclassing would mean overriding half the class.
+2. **Flag shape — scalar binary, confirmed live.** Verified `FetchPickAndPlace-v4` obs
+   `"observation"` is `(25,)`. Appending a 1-dim binary flag → `(26,)`, vs. the 3-category track's
+   `(29,)` for its 4-dim one-hot. Models trained under this track are not interchangeable with
+   `attackaware_3cat` checkpoints (different observation shape).
+3. **Attack condition mapping — `sensor_bias` substituted for `sensor_noise` (human-approved).**
+   `sensor_noise` is **not** one of the 11 canonical conditions in `config.ALL_CONDITIONS`. It
+   exists only as (a) a dead `EVAL_CONDITIONS` list in `training/train_sac_her.py` (legacy, unused
+   by the current sweep/config pipeline — also lists other dead names like `action_noise`,
+   `action_scale`, `target_shift`), and (b) a backward-compat no-op-safe dispatch branch in
+   `attack_dispatch.py`/`attacks/sensor_attacks.py::add_sensor_noise`, with no `ATTACK_LEVELS` or
+   `TRAIN_ATTACK_RANGES` entry. Confirmed with the human that `sensor_bias` (canonical, has a
+   `TRAIN_ATTACK_RANGES` bracket, actually corrupts sensor *readings* rather than blacking them
+   out like `sensor_dropout`) is the intended condition. Final list:
+   `config.SINGLE_ATTACK_CONDITIONS = ["action_reversal", "sensor_bias", "action_delay"]`.
+   `action_delay`'s step-0 `previous_action=None` fix confirmed present on this branch
+   (`attacks/action_attacks.py:72-73`).
+4. **`p_clean` — `0.5` (`config.SINGLE_ATTACK_P_CLEAN`).** Matches `ATTACK_AWARE_P_CLEAN`'s value
+   by convention, for comparability with the 3-category results, but kept as an independent
+   constant so the two tracks can diverge later without cross-editing each other's config.
+5. **`total_timesteps` — `500,000` (`config.SINGLE_ATTACK_TOTAL_TIMESTEPS`), risk flagged not
+   resolved.** Top of the proposed 300k–500k diagnostic range; anchored there because it's the
+   only point in that range with directly measured throughput on this hardware (~1.07 hr, §4e
+   table). Real risk, explicitly not resolved by this choice: the 3-category run's success curve
+   stayed flat/near-zero through ~1.2M steps and only started climbing after ~1.3–1.4M — if
+   single-attack learning behaves similarly, 500k could land entirely inside a flat region and
+   produce a false "flag doesn't help" reading that's actually just an undertrained-policy
+   artifact. Countervailing consideration in favor of 500k anyway: a single-attack policy is a
+   strictly easier learning problem than the 3-category mixture (one attack type to condition on
+   instead of three), so faster convergence than the 3-category reference is plausible — just
+   unproven on this branch. See §7.5 below for how to read a flat `action_reversal` result
+   specifically in light of this.
+6. **Goal-spoofing exclusion — structural, not just by omission.** `SINGLE_ATTACK_CONDITIONS` is a
+   closed 3-value list; there is no code path through which a goal-spoof condition could be
+   selected (unlike `AttackAwareWrapper`, which draws from all non-clean conditions). No separate
+   guard needed.
+
+### 7.3 Implementation (Phase 2, 2026-07-12)
+
+Files added/changed, reviewed and approved before training launch:
+
+- `config.py` — **additive only**, no existing constant touched: `SINGLE_ATTACK_CONDITIONS`,
+  `SINGLE_ATTACK_FLAG_DIM`, `SINGLE_ATTACK_P_CLEAN`, `SINGLE_ATTACK_TOTAL_TIMESTEPS`,
+  `MODEL_PATH_PICKANDPLACE_SINGLEATTACK_PREFIX`.
+- `training/single_attack_wrapper.py` — new. `SingleAttackWrapper(gym.Wrapper)` per §7.2 point 1.
+- `scripts/train_single_attack_pickandplace.py` — new. Mirrors
+  `scripts/train_attack_aware_pickandplace.py`'s `--resume` mechanism verbatim (SAC.load() +
+  `load_replay_buffer()` + `reset_num_timesteps=False`); adds a required `--attack-condition`
+  arg (choices restricted to `SINGLE_ATTACK_CONDITIONS`).
+
+Smoke-tested before launch (no training, no experiment run — obs-shape/flag-value assertions
+only): confirmed `(26,)` observation shape, correct `0.0`/`1.0` flag value for clean vs. attacked
+episodes, and clean per-step dispatch across all three conditions.
+
+### 7.4 Training launch (Phase 3, 2026-07-12)
+
+Three detached `tmux` sessions, `seed=0`, `p_clean=0.5`, `total_timesteps=500,000` each:
+
+| tmux session | Log file |
+|---|---|
+| `singleattack_action_reversal_train` | `results/data/train_log_singleattack_action_reversal_seed0.txt` |
+| `singleattack_sensor_bias_train` | `results/data/train_log_singleattack_sensor_bias_seed0.txt` |
+| `singleattack_action_delay_train` | `results/data/train_log_singleattack_action_delay_seed0.txt` |
+
+TensorBoard: `results/tensorboard/sac_her_pickandplace_singleattack_<condition>_1/`.
+Model output (on completion): `results/models/sac_her_pickandplace_singleattack_<condition>_seed0`
+(+ `_replay_buffer.pkl`) — distinct from all existing paths, nothing overwritten.
+
+Observed throughput at launch: fps ≈ 87 across all three (vs. §4e's single-run reference of
+~113–129 fps) — expected, since these three runs share the same hardware concurrently rather than
+running in isolation. At fps 87, 500,000 steps ≈ **1.6 hr per run**, finishing at roughly the same
+time since all three started together.
+
+Not launched yet, per Dr. Ho's email sequencing: the `p_clean` sweep and the 3-attack mixture
+experiment. Both gated on these three results.
+
+### 7.5 Results
+
+*(Pending — fill in once the three runs complete.)*
+
+| Condition | Success rate (flag) | Success rate (no-flag baseline) | Notes |
+|---|---|---|---|
+| `action_reversal` | — | — | — |
+| `sensor_bias` | — | — | — |
+| `action_delay` | — | — | — |
+
+**Reading caveat for `action_reversal` specifically:** per `CLAUDE.md` §5, `action_reversal`
+already has a documented **0% success ceiling across every previously benchmarked method** —
+`sac_her` base *and* both recovery variants (v2, v3) — described there as a structural limitation
+of the attack (negation produces smooth reversed actuation the policy cannot escape within 150
+steps), not a training or architecture defect. If this single-attack `action_reversal` run also
+comes back flat/0%, **that result should be read against this existing evidence as consistent
+with an already-known structural ceiling, not treated as a fresh negative finding about whether
+the binary flag helps.** A flat result on `sensor_bias` or `action_delay` would carry more weight
+as evidence specifically about flag learnability, since neither of those conditions carries this
+pre-existing ceiling.
+
+> TODO(mentor clarification): Dr. Ho's email describes the existing setup as
+> "closer to 20% clean / 80% attacked," but the completed 3-category attack-aware
+> runs (seed=0, seed=1) were trained at p_clean=0.5, not 0.2 — the 20/80 split
+> belongs to the earlier no-flag `AttackRandomizationWrapper` result (§3). Needs
+> confirmation of which baseline Dr. Ho means before treating "50% clean" as a new
+> experiment vs. a repeat of an existing negative result.
+
+---
+
 ## Pointer text added to CLAUDE.md
 
 Add under §1 (Project Summary), as a new short paragraph after the existing failure-mode
