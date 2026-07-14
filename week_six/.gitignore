@@ -21,6 +21,7 @@ __pycache__/
 # Results (data and models are large; TensorBoard logs excluded per d6360f9)
 results/tensorboard/
 results/tb_logs/
+results/archive/data_prefix_seedfix_2026-07-14/step_logs*.csv
 
 
 update_paper.md
