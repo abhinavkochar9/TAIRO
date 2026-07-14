@@ -85,8 +85,24 @@ CLASSIFIER_DIR = f"{RESULTS_DIR}/classifier"
 MODEL_PATH = f"{MODELS_DIR}/sac_her_fetchreach_model"
 
 # PickAndPlace model paths (Phase 5 — do not overwrite the FetchReach model)
-MODEL_PATH_PICKANDPLACE            = f"{MODELS_DIR}/sac_her_pickandplace_clean"
-MODEL_PATH_PICKANDPLACE_RANDOMIZED = f"{MODELS_DIR}/sac_her_pickandplace_randomized"
+#
+# NOTE (seed-independence-fix audit, 2026-07-13): sac_her_pickandplace_clean.zip
+# and sac_her_pickandplace_randomized.zip are byte-identical (MD5-verified) to
+# the corresponding _500k checkpoints below — they are the same trained weights
+# under an older, undifferentiated name from before the 500k/2M naming scheme
+# existed. Pointing these two constants at the explicit _500k filenames removes
+# that accidental-duplicate-identity risk without changing which weights they
+# resolve to (same runtime behavior as before, just no longer traceable to an
+# ambiguous alias). See scripts/verify_checkpoint_integrity.py.
+MODEL_PATH_PICKANDPLACE            = f"{MODELS_DIR}/sac_her_pickandplace_clean_500k"
+MODEL_PATH_PICKANDPLACE_RANDOMIZED = f"{MODELS_DIR}/sac_her_pickandplace_randomized_500k"
+
+# Explicit 2M-checkpoint constants — did not exist before this audit; scripts
+# previously hardcoded the literal path string ("results/models/sac_her_
+# pickandplace_clean_2M") inline instead of importing from config.py. Use
+# these instead of hardcoding the path again.
+MODEL_PATH_PICKANDPLACE_2M            = f"{MODELS_DIR}/sac_her_pickandplace_clean_2M"
+MODEL_PATH_PICKANDPLACE_RANDOMIZED_2M = f"{MODELS_DIR}/sac_her_pickandplace_randomized_2M"
 
 # Attack-aware policy model path (ATTACK_AWARE_TRACK.md) — new track, does
 # not overwrite or replace the clean/randomized models above.
@@ -240,6 +256,20 @@ ATTACK_AWARE_P_CLEAN = 0.5
 # 1.4M steps) both argue against stopping earlier at "couple hours" (~1M).
 # Extending past this checkpoint is an explicit human decision point.
 ATTACK_AWARE_TIMESTEPS_CHECKPOINT_1 = 2_000_000
+
+# ---------------------------------------------------------------------------
+# Phase 9 causal/online feature windows (evaluation/causal_features.py).
+# Synced from the failure-mode-classifier branch (already-approved Phase 9
+# work) — short window matches GRASP_LIFT_WINDOW (recent-dynamics scale),
+# long window matches WRONG_DIR_WINDOW (the labeler's own sustained-trend
+# scale for the divergent_transport check). Checkpoints are a fixed stride
+# over MAX_EPISODE_STEPS_PICKANDPLACE (all episodes are a fixed 150 steps).
+# ---------------------------------------------------------------------------
+CAUSAL_WINDOW_SHORT       = GRASP_LIFT_WINDOW  # 20 — trailing window, recent dynamics
+CAUSAL_WINDOW_LONG        = WRONG_DIR_WINDOW   # 50 — trailing window, sustained trend
+CAUSAL_CHECKPOINT_START   = CAUSAL_WINDOW_SHORT - 1  # 19 — earliest step with a full
+                                                       # short window of history (steps 0..19)
+CAUSAL_CHECKPOINT_STRIDE  = 10        # steps between inference checkpoints
 
 # ---------------------------------------------------------------------------
 # Optional dependency flags

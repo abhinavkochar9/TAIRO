@@ -14,6 +14,7 @@ Output
         Same, concatenated across all 4 models with a `model` column.
 """
 
+import argparse
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,9 +23,15 @@ import pandas as pd
 import numpy as np
 
 from evaluation.failure_mode_labeling import label_batch, ALL_LABELS
-from config import DATA_DIR
+from config import DATA_DIR as _DEFAULT_DATA_DIR
 
 MODELS = ["clean_2M", "clean_500k", "randomized_2M", "randomized_500k"]
+
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--data-dir", type=str, default=None,
+                      help="Override input/output data directory (default: DATA_DIR from config.py)")
+_args = _parser.parse_args()
+DATA_DIR = _args.data_dir if _args.data_dir is not None else _DEFAULT_DATA_DIR
 
 os.makedirs(DATA_DIR, exist_ok=True)
 

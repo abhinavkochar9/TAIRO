@@ -21,6 +21,7 @@ Usage:
     /opt/miniconda3/envs/reu_robotics/bin/python3 scripts/compute_trustworthiness_s1s4.py
 """
 
+import argparse
 import os
 import sys
 
@@ -43,9 +44,9 @@ MODEL_LABELS = {
 }
 
 
-def _load_model(model: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    episode_path = f"{DATA_DIR}/episode_results_sac_her_pickandplace_{model}.csv"
-    step_path = f"{DATA_DIR}/step_logs_sac_her_pickandplace_{model}.csv"
+def _load_model(model: str, data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    episode_path = f"{data_dir}/episode_results_sac_her_pickandplace_{model}.csv"
+    step_path = f"{data_dir}/step_logs_sac_her_pickandplace_{model}.csv"
     episodes = pd.read_csv(episode_path)
     steps = pd.read_csv(step_path)
     return episodes, steps
@@ -75,8 +76,8 @@ def _join_d_start(model: str, episodes: pd.DataFrame, steps: pd.DataFrame) -> pd
     return merged
 
 
-def compute_scores(model: str) -> dict:
-    episodes, steps = _load_model(model)
+def compute_scores(model: str, data_dir: str) -> dict:
+    episodes, steps = _load_model(model, data_dir)
     episodes = _join_d_start(model, episodes, steps)
 
     # Per-episode S2 and S4, each clipped to [0, 1] individually.
@@ -173,8 +174,21 @@ def to_latex(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=DATA_DIR,
+        metavar="DIR",
+        help="Directory containing episode_results_*/step_logs_* CSVs (default: DATA_DIR from config.py).",
+    )
+    return parser.parse_args()
+
+
 def main():
-    results = [compute_scores(m) for m in MODELS]
+    args = _parse_args()
+    results = [compute_scores(m, args.data_dir) for m in MODELS]
 
     print("=" * 70)
     print("Per-model diagnostics")

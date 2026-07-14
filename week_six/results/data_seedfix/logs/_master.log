@@ -1,0 +1,25 @@
+=== clean_2M start: Mon Jul 13 14:37:01 CDT 2026 ===
+
+real	11m58.549s
+user	11m43.142s
+sys	0m10.031s
+=== clean_2M done: Mon Jul 13 14:49:00 CDT 2026 ===
+=== clean_500k start: Mon Jul 13 14:49:00 CDT 2026 ===
+
+real	13m29.393s
+user	13m6.483s
+sys	0m12.082s
+=== clean_500k done: Mon Jul 13 15:02:29 CDT 2026 ===
+=== randomized_500k start: Mon Jul 13 15:02:29 CDT 2026 ===
+
+real	11m51.967s
+user	11m33.429s
+sys	0m11.784s
+=== randomized_500k done: Mon Jul 13 15:14:21 CDT 2026 ===
+=== randomized_2M start: Mon Jul 13 15:14:21 CDT 2026 ===
+
+real	11m12.346s
+user	10m57.172s
+sys	0m10.414s
+=== randomized_2M done: Mon Jul 13 15:25:33 CDT 2026 ===
+=== ALL PHASE 2 SWEEPS COMPLETE: Mon Jul 13 15:25:33 CDT 2026 ===

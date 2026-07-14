@@ -151,6 +151,18 @@ def _parse_args():
             "Example: --methods sac_her"
         ),
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Directory to write episode_results/step_logs CSVs to. "
+            "Default: DATA_DIR from config.py (results/data/). "
+            "Use a distinct directory (e.g. results/data_seedfix/) to avoid "
+            "overwriting existing CSVs from a prior run."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -194,8 +206,9 @@ def main() -> None:
     seeds       = args.seeds      if args.seeds      is not None else RANDOM_SEEDS
     n_episodes  = args.n_episodes if args.n_episodes is not None else N_EPISODES_PER_SEED
     methods     = args.methods    if args.methods    is not None else ALL_METHODS
+    output_dir  = args.output_dir if args.output_dir is not None else DATA_DIR
 
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Load model
@@ -239,6 +252,7 @@ def main() -> None:
                         method=method,
                         condition=condition,
                         seed=seed,
+                        episode_in_seed=_ep,
                         model=model,
                         attack_level=attack_level,
                         recovery_version=recovery_version,
@@ -268,8 +282,8 @@ def main() -> None:
     episode_df   = pd.DataFrame(episode_rows)
     step_df_all  = pd.concat(step_rows, ignore_index=True)
 
-    ep_path   = os.path.join(DATA_DIR, ep_filename)
-    step_path = os.path.join(DATA_DIR, step_filename)
+    ep_path   = os.path.join(output_dir, ep_filename)
+    step_path = os.path.join(output_dir, step_filename)
     episode_df.to_csv(ep_path, index=False)
     step_df_all.to_csv(step_path, index=False)
 

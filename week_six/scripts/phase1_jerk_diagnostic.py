@@ -29,6 +29,8 @@ from config import (
     MAX_EPISODE_STEPS_PICKANDPLACE,
     MODEL_PATH_PICKANDPLACE,
     MODEL_PATH_PICKANDPLACE_RANDOMIZED,
+    MODEL_PATH_PICKANDPLACE_2M,
+    MODEL_PATH_PICKANDPLACE_RANDOMIZED_2M,
     SAFETY_ARM_JERK_THRESHOLD, SAFETY_GRIPPER_JERK_THRESHOLD,
     SB3_AVAILABLE,
 )
@@ -37,10 +39,13 @@ from evaluation.attack_dispatch import apply_sensor_attack, apply_action_attack
 
 
 MODELS = {
-    "clean_2M":       MODEL_PATH_PICKANDPLACE,
-    "randomized_2M":  MODEL_PATH_PICKANDPLACE_RANDOMIZED,
-    "clean_500k":     "results/models/sac_her_pickandplace_clean_500k",
-    "randomized_500k":"results/models/sac_her_pickandplace_randomized_500k",
+    # config.py now defines all four as distinct, MD5-verified constants
+    # (fixed 2026-07-13 — MODEL_PATH_PICKANDPLACE / _RANDOMIZED used to
+    # silently alias the _500k checkpoints). One source of truth.
+    "clean_2M":        MODEL_PATH_PICKANDPLACE_2M,
+    "randomized_2M":   MODEL_PATH_PICKANDPLACE_RANDOMIZED_2M,
+    "clean_500k":      MODEL_PATH_PICKANDPLACE,
+    "randomized_500k": MODEL_PATH_PICKANDPLACE_RANDOMIZED,
 }
 
 
@@ -50,7 +55,8 @@ def _collect_jerk_steps(model, env, condition, seed, n_episodes, max_steps):
     attack_level = ATTACK_LEVELS[condition]
 
     for ep in range(n_episodes):
-        obs, _ = env.reset(seed=seed)
+        reset_seed = 100 * seed + ep
+        obs, _ = env.reset(seed=reset_seed)
         previous_action = None
         bias_vector = None
         goal_offset = None
@@ -115,6 +121,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seeds", type=int, nargs="+", default=None)
     parser.add_argument("--n-episodes", type=int, default=None)
+    parser.add_argument("--output-path", type=str, default=None,
+                         help="Override output CSV path (default: DATA_DIR/phase1_jerk_raw.csv)")
     args = parser.parse_args()
 
     seeds      = args.seeds      if args.seeds      is not None else RANDOM_SEEDS
@@ -160,7 +168,7 @@ def main():
             print(f"  {n_steps:>6} jerk-steps, {n_flag:>5} flagged ({100*n_flag/max(n_steps,1):.2f}%)")
 
     df = pd.DataFrame(all_rows)
-    out_path = os.path.join(DATA_DIR, "phase1_jerk_raw.csv")
+    out_path = args.output_path if args.output_path is not None else os.path.join(DATA_DIR, "phase1_jerk_raw.csv")
     df.to_csv(out_path, index=False)
     print(f"\n[diag] Raw jerk data saved: {out_path}  ({len(df)} rows)")
 

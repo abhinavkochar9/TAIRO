@@ -27,6 +27,7 @@ Output
   Console: accuracy, per-class F1, confusion matrix, feature importances
 """
 
+import argparse
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,11 +41,20 @@ import pickle
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (classification_report, confusion_matrix,
-                              accuracy_score, f1_score)
+                              accuracy_score, f1_score, balanced_accuracy_score)
 from sklearn.preprocessing import LabelEncoder
 
-from config import DATA_DIR, CLASSIFIER_DIR
+from config import DATA_DIR as _DEFAULT_DATA_DIR, CLASSIFIER_DIR as _DEFAULT_CLASSIFIER_DIR
 from evaluation.failure_mode_labeling import ALL_LABELS
+
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--data-dir", type=str, default=None,
+                      help="Input data directory (default: DATA_DIR from config.py)")
+_parser.add_argument("--classifier-dir", type=str, default=None,
+                      help="Output classifier directory (default: CLASSIFIER_DIR from config.py)")
+_args = _parser.parse_args()
+DATA_DIR = _args.data_dir if _args.data_dir is not None else _DEFAULT_DATA_DIR
+CLASSIFIER_DIR = _args.classifier_dir if _args.classifier_dir is not None else _DEFAULT_CLASSIFIER_DIR
 
 os.makedirs(CLASSIFIER_DIR, exist_ok=True)
 
@@ -239,6 +249,39 @@ y_test  = test_df["failure_mode"].values
 print(f"[phase8] Train: {len(X_train)} episodes (seeds {TRAIN_SEEDS})")
 print(f"[phase8] Test:  {len(X_test)} episodes  (seed {TEST_SEED})\n")
 
+# ── Leakage check ──────────────────────────────────────────────────────────
+print("=" * 70)
+print("LEAKAGE CHECK")
+print("=" * 70)
+train_idx = set(train_df["episode_idx"])
+test_idx  = set(test_df["episode_idx"])
+overlap = train_idx & test_idx
+print(f"  episode_idx overlap between train/test: {len(overlap)} (expect 0)")
+assert len(overlap) == 0, f"LEAKAGE: {len(overlap)} episode_idx values appear in both train and test"
+# Seed-fix-specific check: with the paired-spawn design (reset_seed = 100*seed +
+# episode_in_seed), the same 30 physical spawns recur across all 11 conditions
+# WITHIN a seed. Confirm train (seeds 0-3) and test (seed 4) draw from disjoint
+# reset-seed ranges, i.e. no physical-spawn leakage across the split either.
+if "initial_dttg" in feat_df.columns:
+    train_d = set(train_df["initial_dttg"].round(6))
+    test_d  = set(test_df["initial_dttg"].round(6))
+    d_overlap = train_d & test_d
+    print(f"  initial_dttg (spawn-signature) overlap between train/test: {len(d_overlap)} "
+          f"(expect 0 — disjoint reset-seed ranges confirm no physical-spawn leakage)")
+print()
+
+# ── Class counts per split ────────────────────────────────────────────────
+print("=" * 70)
+print("CLASS COUNTS PER SPLIT")
+print("=" * 70)
+train_counts = train_df["failure_mode"].value_counts().reindex(ALL_LABELS, fill_value=0)
+test_counts  = test_df["failure_mode"].value_counts().reindex(ALL_LABELS, fill_value=0)
+counts_df = pd.DataFrame({"train": train_counts, "test": test_counts})
+counts_df["train_pct"] = (100 * counts_df["train"] / counts_df["train"].sum()).round(2)
+counts_df["test_pct"]  = (100 * counts_df["test"]  / counts_df["test"].sum()).round(2)
+print(counts_df.to_string())
+print()
+
 
 # ── Majority-class baseline ───────────────────────────────────────────────────
 majority_label = train_df["failure_mode"].value_counts().idxmax()
@@ -280,6 +323,27 @@ cm = confusion_matrix(y_test, y_pred_rf, labels=ALL_LABELS)
 cm_df = pd.DataFrame(cm, index=[f"T:{l[:12]}" for l in ALL_LABELS],
                               columns=[f"P:{l[:12]}" for l in ALL_LABELS])
 print(cm_df.to_string())
+print()
+
+# ── Balanced accuracy + bootstrap CI for macro-F1 ─────────────────────────────
+print("=" * 70)
+print("BALANCED ACCURACY + MACRO-F1 95% CI (bootstrap, n=2000 resamples)")
+print("=" * 70)
+bal_acc = balanced_accuracy_score(y_test, y_pred_rf)
+print(f"  Balanced accuracy: {bal_acc:.3f}")
+
+rng = np.random.default_rng(42)
+n_test = len(y_test)
+boot_f1 = []
+y_test_arr = np.asarray(y_test)
+y_pred_arr = np.asarray(y_pred_rf)
+for _ in range(2000):
+    idx = rng.integers(0, n_test, n_test)
+    boot_f1.append(f1_score(y_test_arr[idx], y_pred_arr[idx], average="macro", zero_division=0))
+boot_f1 = np.array(boot_f1)
+ci_lo, ci_hi = np.percentile(boot_f1, [2.5, 97.5])
+print(f"  Macro-F1: {f1_score(y_test, y_pred_rf, average='macro', zero_division=0):.3f}  "
+      f"95% CI [{ci_lo:.3f}, {ci_hi:.3f}]")
 print()
 
 

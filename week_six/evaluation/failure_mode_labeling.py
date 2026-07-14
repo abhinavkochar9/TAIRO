@@ -5,7 +5,7 @@ Entry point
 -----------
     label_episode(step_df) -> str
 
-Returns one of seven labels based on trajectory behavior alone — the
+Returns one of six labels based on trajectory behavior alone — the
 `condition` and `attack_level` columns are never used as features.
 
 Labels
@@ -15,8 +15,11 @@ Labels
     reached_but_failed_grasp — gripper reached but no confirmed grasp (kinematic + lift)
     grasped_but_dropped      — confirmed grasp, then object separated before any success
     spoofed_goal             — object converged to perceived goal, not true goal
-    wrong_direction          — object trajectory diverged from true goal over episode
-    action_control_corruption — fallback; elevated action-norm / safety-violation signal
+    divergent_transport      — object trajectory diverged from true goal over episode,
+                                OR unclassified fallback (elevated action-norm / safety
+                                signal). Merged 2026-07-11 from the former
+                                `wrong_direction` + `action_control_corruption` split —
+                                see CLAUDE.md §14 changelog for why.
 
 Threshold constants live in config.py (never hardcoded here).
 
@@ -26,7 +29,7 @@ Requires step_df to contain the new spatial columns written by episode_runner.py
     action_norm, intended_action_norm, safety_violation.
 
 FetchReach episodes (10-dim obs → NaN spatial fields) are returned as
-action_control_corruption immediately — they are not in scope for this labeler.
+divergent_transport immediately — they are not in scope for this labeler.
 """
 
 from typing import Optional
@@ -53,8 +56,14 @@ LABEL_NEVER_REACHED        = "never_reached_object"
 LABEL_REACH_NO_GRASP       = "reached_but_failed_grasp"
 LABEL_GRASPED_DROPPED      = "grasped_but_dropped"
 LABEL_SPOOFED_GOAL         = "spoofed_goal"
-LABEL_WRONG_DIRECTION      = "wrong_direction"
-LABEL_ACTION_CORRUPTION    = "action_control_corruption"
+# Merged 2026-07-11: former LABEL_WRONG_DIRECTION ("wrong_direction") and
+# LABEL_ACTION_CORRUPTION ("action_control_corruption") collapsed into one
+# label. Diagnostic found the two were not cleanly separable (F1 0.452/0.100
+# on test seed 4, collapsing further under held-out-condition generalization)
+# and that `action_control_corruption` never actually reflected action-space
+# corruption in this data (tail_action_div identically zero across all 128
+# episodes carrying either label). See CLAUDE.md §14 changelog.
+LABEL_DIVERGENT_TRANSPORT  = "divergent_transport"
 
 ALL_LABELS = [
     LABEL_SUCCESS,
@@ -62,8 +71,7 @@ ALL_LABELS = [
     LABEL_REACH_NO_GRASP,
     LABEL_GRASPED_DROPPED,
     LABEL_SPOOFED_GOAL,
-    LABEL_WRONG_DIRECTION,
-    LABEL_ACTION_CORRUPTION,
+    LABEL_DIVERGENT_TRANSPORT,
 ]
 
 _REQUIRED_SPATIAL = [
@@ -166,7 +174,7 @@ def label_episode(step_df: pd.DataFrame) -> str:
         col not in step_df.columns or step_df[col].isna().all()
         for col in _REQUIRED_SPATIAL
     ):
-        return LABEL_ACTION_CORRUPTION
+        return LABEL_DIVERGENT_TRANSPORT
 
     dto  = step_df["distance_to_object"].values
     dttg = step_df["distance_to_true_goal"].values
@@ -210,15 +218,15 @@ def label_episode(step_df: pd.DataFrame) -> str:
             post_tg.max() > SPOOFED_GOAL_TRUE_MIN):
         return LABEL_SPOOFED_GOAL
 
-    # 6. Wrong direction: true-goal distance trending away / flat over the
-    #    episode tail — object made no net progress toward the true goal.
-    if _is_diverging(dttg):
-        return LABEL_WRONG_DIRECTION
-
-    # 7. Fallback — elevated action-norm / safety-violation signal, or
-    #    any other unclassified failure (includes object_pose_spoof where
-    #    perceived == true goal so spoofed_goal cannot fire).
-    return LABEL_ACTION_CORRUPTION
+    # 6. Divergent transport: everything remaining — true-goal distance
+    #    trending away/flat over the episode tail, or any other unclassified
+    #    failure (includes object_pose_spoof, where perceived == true goal so
+    #    spoofed_goal cannot fire). Formerly split into wrong_direction (the
+    #    `_is_diverging` case) and action_control_corruption (fallback);
+    #    merged 2026-07-11 — see module docstring. `_is_diverging` is kept
+    #    only as a helper for historical diagnostic scripts, not called here
+    #    since both former branches now return the same label.
+    return LABEL_DIVERGENT_TRANSPORT
 
 
 def label_batch(step_df_all: pd.DataFrame,
