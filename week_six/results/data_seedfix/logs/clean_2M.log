@@ -1,0 +1,32 @@
+AdroitHandRelocateDense-v1, AdroitHandHammerDense-v1, AdroitHandDoorDense-v1 environment's reward functions were updated in v1.2.1 without an environment version update. Therefore, use gymnasium-robotics==1.2.0 for v1 reproducibility or use v2 in gymnasium-robotics>=1.4.3. See https://github.com/Farama-Foundation/Gymnasium-Robotics/pull/220 for more details
+[sweep] env=sac_her_pickandplace_clean_2M  max_steps=150  model=results/models/sac_her_pickandplace_clean_2M
+[sweep] seeds=[0, 1, 2, 3, 4]  n_episodes=30  conditions=11  methods=3
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+
+[sweep] seed=0
+
+[sweep] seed=1
+
+[sweep] seed=2
+
+[sweep] seed=3
+
+[sweep] seed=4
+
+[sweep] Done — 4950 episodes, 742500 timesteps.
+        results/data_seedfix/episode_results_sac_her_pickandplace_clean_2M.csv
+        results/data_seedfix/step_logs_sac_her_pickandplace_clean_2M.csv
+
+[sweep] Condition coverage (sac_her only):
+        clean                           150 episodes
+        sensor_dropout                  150 episodes
+        sensor_bias                     150 episodes
+        action_clipping                 150 episodes
+        action_delay                    150 episodes
+        action_reversal                 150 episodes
+        goal_spoof_immediate            150 episodes
+        goal_spoof_midep                150 episodes
+        object_pose_spoof               150 episodes
+        grip_state_falsification        150 episodes
+        contact_dropout                 150 episodes

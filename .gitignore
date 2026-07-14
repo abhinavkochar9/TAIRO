@@ -7,3 +7,12 @@ week_six/results/tensorboard/
 week_six/results/tb_logs/
 week_six/results/data/step_logs*.csv
 
+# seed-independence-fix branch: same rationale as results/data/step_logs*.csv above
+# (per-step logs are too large for git); data_prefix_relabeled/ and
+# classifier_prefix_relabeled/ are scratch old-vs-new comparison artifacts derived
+# from already-tracked results/data/, not meant to persist.
+week_six/results/data_seedfix/step_logs*.csv
+week_six/results/data_seedfix/sac_her_only/step_logs*.csv
+week_six/results/data_prefix_relabeled/
+week_six/results/classifier_prefix_relabeled/
+

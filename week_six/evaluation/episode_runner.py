@@ -143,6 +143,7 @@ def run_episode(
     env,
     method: str,
     seed: int,
+    episode_in_seed: int = 0,
     condition: str = "clean",
     attack_level: float = 0.0,
     model=None,
@@ -165,7 +166,14 @@ def run_episode(
     Args:
         env:               Gymnasium environment (already created).
         method:            Policy identifier string.
-        seed:              Random seed passed to env.reset().
+        seed:              Outer benchmark seed (0-4). Stored verbatim in the
+                            output rows so downstream per-seed grouping is unaffected.
+        episode_in_seed:   Index of this episode within its (seed, condition, method)
+                            block of N_EPISODES_PER_SEED episodes (0-29). Combined with
+                            ``seed`` to build the env.reset() seed below (paper §IV.C:
+                            reset_seed = 100*seed + episode_in_seed), so each of the 30
+                            episodes in a seed block draws an independent initial
+                            spawn/goal instead of all 30 sharing one.
         condition:         Attack condition name (see module docstring).
         attack_level:      Float parameter for the attack (e.g., noise_std).
         model:             Trained SB3 model (required for sac / sac_her methods).
@@ -187,7 +195,8 @@ def run_episode(
     else:
         recovery_state = None
 
-    obs, info = env.reset(seed=seed)
+    reset_seed = 100 * seed + episode_in_seed
+    obs, info = env.reset(seed=reset_seed)
 
     total_reward = 0.0
     actions: List[np.ndarray] = []
