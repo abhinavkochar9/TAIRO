@@ -1,4 +1,4 @@
-# ATTACK_AWARE_TRACK.md — Attack-Aware Policy (Dr. Ho Proposal)
+# ATTACK_AWARE_TRACK.md — Attack-Aware Policy
 
 **Status:** Step 1 (diagnostic & design, §4) complete — pending human + mentor review before
 Step 2 (implementation/training) begins. See §4 and §6 for resolved answers.
@@ -12,11 +12,11 @@ duplicate this content back into CLAUDE.md as it evolves — update here only.
 
 ## 1. Background — where this came from
 
-Originating from Dr. Ho's email (2026-07-08), responding to an open architectural question about
-his earlier observation-wrapper suggestion: ground-truth labels for what attack is active can't
+This track originates from a 2026-07-08 proposal, responding to an open architectural question about
+an earlier observation-wrapper suggestion: ground-truth labels for what attack is active can't
 exist at deployment, so how does an attack-aware policy get that signal at all?
 
-Dr. Ho's answer, distilled to three points:
+The proposal, distilled to three points:
 
 1. **Category scheme, staged rollout.** Start with a 3-category flag (action / sensor / goal —
    not clean/attacked binary, and not the full 11-condition taxonomy) added to the SAC+HER
@@ -32,11 +32,11 @@ Dr. Ho's answer, distilled to three points:
    in parallel — not sequentially. Ground truth gets swapped for classifier predictions in a
    later phase to measure the resulting performance degradation.
 
-Recommended order, per Dr. Ho: (1) train RL with ground-truth flags, (2) build the classifier
+Recommended order: (1) train RL with ground-truth flags, (2) build the classifier
 dataset and train it in parallel while (1) runs, (3) later, splice classifier predictions in for
 (1) and measure the gap.
 
-**Decision:** proceed as Dr. Ho describes it — he has more domain expertise here than the prior
+**Decision:** proceed as the proposal describes — it reflects more domain expertise here than the prior
 smoke-test-first instinct this track started from. No smoke-test gate before the full run; see
 Step 2 below.
 
@@ -132,7 +132,7 @@ corrupts the executed action (mechanistically identical to `action_reversal`).
 labels for this condition specifically. That is orthogonal to this classifier's job (predicting
 *which attack category is currently active*, causally, from obs/action history) and orthogonal to
 the mechanistic channel question this mapping answers. Recommend not treating it as a reason to
-add a bespoke 4th category — that would contradict Dr. Ho's explicit staged-rollout design (3
+add a bespoke 4th category — that would contradict the explicit staged-rollout design (3
 categories now, 11-class later per §1). If Step 2's eval shows `object_pose_spoof` is where the
 3-category flag helps least, that is itself useful signal for prioritizing the future 11-class
 step, not a reason to break the 3-category scheme now.
@@ -222,7 +222,7 @@ speculatively going lower on an unverified hypothesis. A follow-up ablation at l
 (e.g. 0.3–0.4) to test whether the flag's expected advantage allows a lower value is reasonable
 future work, but out of scope for this run.
 
-### 4e. `total_timesteps` — CONFIRMED: 2,000,000 (overrides Dr. Ho's "couple hours" framing — flagged for explicit review)
+### 4e. `total_timesteps` — CONFIRMED: 2,000,000 (overrides the "couple hours" framing — flagged for explicit review)
 
 **Measured wall-clock throughput, this hardware, this exact training setup**
 (`train_log_p50_2M.txt`, same env/replay-buffer/network configuration expected for the
@@ -235,7 +235,7 @@ attack-aware run — only a 4-dim obs concatenation differs, negligible compute 
 | 1,500,000 | ~3.44 hr |
 | 2,000,000 | ~4.91 hr |
 
-Dr. Ho's "couple hours" estimate maps almost exactly to **1,000,000** timesteps by throughput
+The "couple hours" estimate maps almost exactly to **1,000,000** timesteps by throughput
 alone — not the "closer to 500k" framing in the original draft. But throughput is only half the
 picture. **The success-rate curve in §4d above shows this specific training setup (PickAndPlace,
 partial attack exposure) stays in the single digits through ~1.2M timesteps and only starts
@@ -247,7 +247,7 @@ stated purpose (§1, point 3: "establishes an upper bound before classifier nois
 picture") — a truncated run gives a meaningless, artificially pessimistic upper bound.
 
 **Recommendation: 2,000,000 timesteps (~4.9 hr), explicitly diverging from the "couple hours"
-estimate.** This is a real cost increase over Dr. Ho's framing and is flagged here specifically
+estimate.** This is a real cost increase over the "couple hours" framing and is flagged here specifically
 for human/mentor sign-off rather than silently resolved — it is a genuine time/resource
 trade-off, not a technical judgment call. It is consistent with the existing repo convention that
 2M, not 500k, is the timestep scale at which PickAndPlace models become reliable at all (§1: only
@@ -431,7 +431,7 @@ being complete.
       Anchored `p_clean=0.5` on a previously-undocumented existing run
       (`sac_her_pickandplace_randomized_p50_2M`) that shows a real, non-flat learning curve —
       not on reasoning alone.
-- [x] `total_timesteps` — **2,000,000 recommended**, diverging from Dr. Ho's "couple hours"
+- [x] `total_timesteps` — **2,000,000 recommended**, diverging from the "couple hours"
       framing (§4e). Measured throughput on this hardware puts "couple hours" at ~1M steps, but
       the comparable existing run's success-rate curve stays flat/low through ~1.2–1.4M steps —
       stopping early risks reproducing the §3 negative result and undermines the run's stated
@@ -450,7 +450,7 @@ being complete.
 
 ---
 
-## 7. Single-Attack Binary-Flag Track (Dr. Ho, 2026-07-12)
+## 7. Single-Attack Binary-Flag Track (2026-07-12)
 
 **Status:** Training launched (2026-07-12), 3 runs in progress — no results yet.
 **Branch:** `attack-aware-single-flag`, cut from `attack-aware-policy` at commit `7e9eb37`
@@ -462,7 +462,7 @@ flag shape, different sampling scheme, different config constants, different mod
 
 ### 7.1 Background
 
-Experiment 1 from Dr. Ho's 2026-07-12 email: single-attack policies with a binary (0/1) flag, to
+Experiment 1 from the 2026-07-12 proposal: single-attack policies with a binary (0/1) flag, to
 test learnability per attack and whether the policy conditions on the flag at all — a smaller,
 cheaper probe intended to be resolved *before* trusting a negative result on the harder
 3-category mixture (§3, §5 seed=0/seed=1 above, both negative at `p_clean=0.5`). If the policy
@@ -553,7 +553,7 @@ Observed throughput at launch: fps ≈ 87 across all three (vs. §4e's single-ru
 running in isolation. At fps 87, 500,000 steps ≈ **1.6 hr per run**, finishing at roughly the same
 time since all three started together.
 
-Not launched yet, per Dr. Ho's email sequencing: the `p_clean` sweep and the 3-attack mixture
+Not launched yet, per the proposal's sequencing: the `p_clean` sweep and the 3-attack mixture
 experiment. Both gated on these three results.
 
 ### 7.5 Results
@@ -577,11 +577,11 @@ the binary flag helps.** A flat result on `sensor_bias` or `action_delay` would 
 as evidence specifically about flag learnability, since neither of those conditions carries this
 pre-existing ceiling.
 
-> TODO(mentor clarification): Dr. Ho's email describes the existing setup as
+> NOTE (p_clean baseline discrepancy): the proposal describes the existing setup as
 > "closer to 20% clean / 80% attacked," but the completed 3-category attack-aware
 > runs (seed=0, seed=1) were trained at p_clean=0.5, not 0.2 — the 20/80 split
-> belongs to the earlier no-flag `AttackRandomizationWrapper` result (§3). Needs
-> confirmation of which baseline Dr. Ho means before treating "50% clean" as a new
+> belongs to the earlier no-flag `AttackRandomizationWrapper` result (§3). Which
+> baseline "50% clean" refers to determines whether it is a new
 > experiment vs. a repeat of an existing negative result.
 
 ---
@@ -592,13 +592,13 @@ Add under §1 (Project Summary), as a new short paragraph after the existing fai
 classifier paragraph:
 
 > A third, independent workstream — an **attack-aware policy** (ground-truth attack-category
-> flag added to the SAC+HER observation, per Dr. Ho's proposal) — is tracked entirely in
+> flag added to the SAC+HER observation) — is tracked entirely in
 > `ATTACK_AWARE_TRACK.md`, developed on a separate branch. **Do not conflate with the Phase 9
 > online failure-mode classifier in §14** — different classifier, different target, different
 > consumer. See `ATTACK_AWARE_TRACK.md` for full context before doing any work on this track.
 
 And one line added to §15 (Hard Rules for Claude Code), as rule 13:
 
-> 13. **Attack-aware policy work (ground-truth attack-category flag, Dr. Ho's proposal) is
+> 13. **Attack-aware policy work (ground-truth attack-category flag) is
 >     tracked in `ATTACK_AWARE_TRACK.md`, not here** — read it before touching anything on that
 >     branch, and do not add its findings into CLAUDE.md directly.

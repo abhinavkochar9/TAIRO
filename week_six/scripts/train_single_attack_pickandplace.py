@@ -1,6 +1,6 @@
 """
 Train a single-attack binary-flag SAC+HER policy on FetchPickAndPlace-v4
-(ATTACK_AWARE_TRACK.md §7, Dr. Ho email 2026-07-12).
+(ATTACK_AWARE_TRACK.md §7).
 
 Ground-truth scalar binary flag (0.0 clean / 1.0 attacked, against exactly
 ONE fixed attack condition per run) is injected into obs["observation"] by

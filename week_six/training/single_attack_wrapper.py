@@ -1,6 +1,6 @@
 """
 Single-attack binary-flag Gymnasium wrapper for TAIRO PickAndPlace training
-(ATTACK_AWARE_TRACK.md §7, Dr. Ho email 2026-07-12).
+(ATTACK_AWARE_TRACK.md §7).
 
 Distinct from training/attack_aware_wrapper.py's 3-category one-hot track:
 this wrapper mixes clean episodes with exactly ONE fixed attack condition

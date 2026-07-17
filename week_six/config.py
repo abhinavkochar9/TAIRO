@@ -224,7 +224,7 @@ WRONG_DIR_WINDOW           = 50      # steps
 # §4; do not duplicate that reasoning here.
 # ---------------------------------------------------------------------------
 
-# 3-category scheme per Dr. Ho's proposal (§4a): every one of the 11
+# 3-category scheme (§4a): every one of the 11
 # conditions maps to exactly one of these by "which channel is corrupted"
 # (action stream / observation-sensor stream / goal stream). "clean" is its
 # own explicit category, not an implicit all-zero default (§4c).
